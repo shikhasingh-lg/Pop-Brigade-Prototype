@@ -1,0 +1,23 @@
+# Godot 4+ generated files
+.godot/
+.import/
+
+# Exported builds
+build/
+exports/
+*.pck
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*~
+.vscode/
+.idea/
+
+# Telemetry output (local sessions)
+logs/
+*.jsonl
