@@ -20,9 +20,9 @@ func _ready() -> void:
 		+ "▶ TAP ANYWHERE to enter MatchScene"
 	Telemetry.start_session("dev")
 
-func _unhandled_input(event: InputEvent) -> void:
-	if (event is InputEventMouseButton and event.pressed) \
-			or (event is InputEventScreenTouch and event.pressed):
+func _input(event: InputEvent) -> void:
+	# Only MouseButton; emulate_touch_from_mouse doubles events otherwise.
+	if event is InputEventMouseButton and event.pressed:
 		get_tree().change_scene_to_file("res://scenes/MatchScene.tscn")
 	# TODO §UI 2: full screen switching:
 	#   Boot → MetaHub → Loadout → Match → (Clear|Fail) → RunEnd → MetaHub

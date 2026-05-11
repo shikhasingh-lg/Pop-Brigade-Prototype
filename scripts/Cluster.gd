@@ -24,6 +24,7 @@ var _consecutive_misses: int = 0
 var _last_descend_ms: int = 0
 var _initial_y: float = 0.0
 var _is_descending: bool = false
+var _stage_over: bool = false
 
 @export var bubble_scene: PackedScene
 @export var spawn_line_y: float = 0.0   # set by MatchScene, in Cluster-local space
@@ -57,6 +58,7 @@ func setup_for_stage(stage_num: int) -> void:
 	position.y = _initial_y
 	_descent_timer = 0.0
 	_consecutive_misses = 0
+	_stage_over = false
 	_last_descend_ms = Time.get_ticks_msec()
 
 func _clear_visual_grid() -> void:
@@ -117,6 +119,7 @@ func _hex_neighbors(row: int, col: int) -> Array:
 # §3.2 — Descent (visual + spawn-line crossing)
 # ============================================================
 func _process(delta: float) -> void:
+	if _stage_over: return
 	if _is_descending: return
 	_descent_timer += delta
 	if _descent_timer >= GameConfig.cluster_descent_rate_sec:
@@ -153,6 +156,7 @@ func _on_descent_finished() -> void:
 			else:
 				any_remaining = true
 	if not any_remaining and grid.size() > 0:
+		_stage_over = true
 		emit_signal("cluster_reached_lane")
 
 func pause_descent(seconds: float) -> void:
@@ -332,6 +336,16 @@ func _count_bubbles() -> int:
 		for cell in row:
 			if cell != null: n += 1
 	return n
+
+# §3.3: colors still present in cluster (used by Cannon to filter the queue palette).
+func get_active_colors() -> Array:
+	var seen: Dictionary = {}
+	for row in grid:
+		for cell in row:
+			if cell == null: continue
+			if cell.is_special_color_bomb: continue
+			seen[cell.color] = true
+	return seen.keys()
 
 # ============================================================
 # Open question OQ8 (§7.1): should falling bubbles convert to enemies?

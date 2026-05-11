@@ -27,6 +27,10 @@ var ricochet_count: int = 1
 @export var debug_mode: bool = true
 @export var cluster_path: NodePath  # set in MatchScene.tscn; W1 only
 
+# Queue HUD ColorRects (set up in MatchScene.tscn — current is child of Cannon, on-deck is sibling).
+@onready var _current_sprite: ColorRect = get_node_or_null("CurrentBubble")
+@onready var _on_deck_sprite: ColorRect = get_node_or_null("../OnDeckBubble")
+
 func _ready() -> void:
 	fire_rate_cap_sec = GameConfig.fire_rate_cap_sec
 	ricochet_count    = GameConfig.aim_ricochet_count
@@ -35,10 +39,22 @@ func _ready() -> void:
 	color_palette = GameConfig.all_bubble_colors()
 	current_color = color_palette[randi() % color_palette.size()]
 	on_deck_color = color_palette[randi() % color_palette.size()]
+	_refresh_queue_visuals()
 	if not debug_mode:
 		return
 	# Defer cluster resolution so MatchScene's @onready vars finish first.
 	call_deferred("_resolve_cluster")
+
+func _refresh_queue_visuals() -> void:
+	if _current_sprite != null:
+		_current_sprite.color = _color_for_enum(current_color)
+	if _on_deck_sprite != null:
+		_on_deck_sprite.color = _color_for_enum(on_deck_color)
+
+func _color_for_enum(c: int) -> Color:
+	if GameConfig.COLOR_HEX.has(c):
+		return Color.html(GameConfig.COLOR_HEX[c])
+	return Color.WHITE
 
 var _cluster_ref: Cluster = null
 
@@ -71,31 +87,32 @@ func _input(event: InputEvent) -> void:
 	# TODO W2: enforce fire_rate_cap_sec.
 
 func _debug_input(event: InputEvent) -> void:
-	# W1 tap-to-place: any tap (mouse-down or touch-down) places a bubble of `current_color`
-	# at the nearest empty hex cell to the tap position.
-	var is_tap: bool = false
-	if event is InputEventMouseButton:
-		is_tap = event.pressed and event.button_index == MOUSE_BUTTON_LEFT
-	elif event is InputEventScreenTouch:
-		is_tap = event.pressed
-	if not is_tap: return
+	# W1 tap-to-place: tap places a bubble of `current_color` at the nearest empty hex.
+	# Handle only InputEventMouseButton; project has emulate_touch_from_mouse=true so a
+	# single click otherwise fires twice (MouseButton + ScreenTouch).
+	if not (event is InputEventMouseButton): return
+	if not event.pressed: return
+	if event.button_index != MOUSE_BUTTON_LEFT: return
 	if _cluster_ref == null:
 		_resolve_cluster()
 		if _cluster_ref == null:
 			push_warning("Cannon[debug]: no Cluster found in scene; tap ignored")
 			return
 	var world_pos: Vector2 = event.position
-	# Ignore taps in the bottom HUD (cannon area) to allow swap-tap later.
-	if world_pos.y > 1390: return
+	# Bottom HUD: swap if tap is on the on-deck slot (MatchScene.tscn: x 380..440, y 1450..1500).
+	if world_pos.y > 1390:
+		if world_pos.x >= 370 and world_pos.x <= 450 \
+				and world_pos.y >= 1440 and world_pos.y <= 1510:
+			swap_queue()
+		return
 	# Use the bubble_scene exported on Cluster (already wired in MatchScene.tscn).
+	# Per spec §3.7, color bombs only spawn IN the cluster at stage >=4, never from the cannon.
 	var b: Bubble = _cluster_ref.bubble_scene.instantiate()
 	b.color = current_color
-	b.is_special_color_bomb = _is_color_bomb()
-	# Cluster handles parenting + placement; pass world position.
+	b.is_special_color_bomb = false
 	_cluster_ref.attach_bubble(b, world_pos)
 	Telemetry.log_bubble_fired(1, current_color, false, 0.0, 0)
 	_advance_queue()
-	_shot_count_since_last_bomb += 1
 
 # ============================================================
 # §3.3 — Fire
@@ -120,17 +137,32 @@ func try_fire(aim_angle_deg: float, queue_swap_used: bool, stage_num: int) -> vo
 func _advance_queue() -> void:
 	current_color = on_deck_color
 	on_deck_color = _draw_from_palette()
+	# §3.3: if the just-promoted current was the last of its color (popped by this shot),
+	# re-roll it against the now-current palette.
+	if _cluster_ref != null:
+		var active: Array = _cluster_ref.get_active_colors()
+		if not active.is_empty():
+			if not (current_color in active):
+				current_color = active[randi() % active.size()]
+			if not (on_deck_color in active):
+				on_deck_color = active[randi() % active.size()]
+	_refresh_queue_visuals()
 
 func swap_queue() -> void:
 	var tmp := current_color
 	current_color = on_deck_color
 	on_deck_color = tmp
+	_refresh_queue_visuals()
 
 func _draw_from_palette() -> int:
-	# §3.3 — only colors still in cluster are drawn. With color_bias (boon), bias toward color_bias by +30%.
+	# §3.3 — only colors still in cluster are drawn.
+	if _cluster_ref != null:
+		var active: Array = _cluster_ref.get_active_colors()
+		if not active.is_empty():
+			color_palette = active
 	if color_palette.is_empty():
-		return GameConfig.BubbleColor.RED  # fallback
-	# TODO: apply +30% weight toward color_bias if set, then weighted random pick.
+		return GameConfig.BubbleColor.RED
+	# TODO W2: apply +30% weight toward color_bias if set, then weighted random pick.
 	return color_palette[randi() % color_palette.size()]
 
 func _is_color_bomb() -> bool:
