@@ -46,3 +46,14 @@ func attach_to_grid(row: int, col: int) -> void:
 	in_flight = false
 	velocity = Vector2.ZERO
 	emit_signal("attached_to_cluster", row, col)
+
+# Place this bubble into a Cluster's local grid at the given local position.
+# Used by the W1 debug harness (tap-to-place) and by W2 flight-collision code.
+# Reparents into `new_parent` if not already a child.
+func attach_to_grid_cell(new_parent: Node, row: int, col: int, local_pos: Vector2) -> void:
+	if get_parent() != new_parent:
+		if get_parent() != null:
+			get_parent().remove_child(self)
+		new_parent.add_child(self)
+	position = local_pos
+	attach_to_grid(row, col)

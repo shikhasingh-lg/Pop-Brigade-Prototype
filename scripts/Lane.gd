@@ -33,6 +33,11 @@ func _ready() -> void:
 func spawn_hero(color: int, tier: String, col: int, source: String) -> void:
 	# §3.4: spawn at lowest empty cell in `col` (bottom-up fill).
 	# If column full, replace most-damaged hero in any column (tie: oldest).
+	# W1 stub: log + telemetry only; no Hero scene wired yet.
+	if hero_scene == null:
+		print("[Lane:W1-stub] spawn_hero color=%d tier=%s col=%d source=%s" % [color, tier, col, source])
+		Telemetry.log_hero_spawn(color, tier, col, 0, source)
+		return
 	var target_row := -1
 	for r in range(ROWS - 1, -1, -1):
 		if _heroes_by_cell[r][col] == null:
@@ -76,6 +81,11 @@ func spawn_enemy_from_stage_pacing(_stage_num: int) -> void:
 	_spawn_enemy(picked, col, "pacing")
 
 func _spawn_enemy(color: int, col: int, source: String) -> void:
+	# W1 stub: log + telemetry only; no Enemy scene wired yet.
+	if enemy_scene == null:
+		print("[Lane:W1-stub] enemy_spawn color=%d col=%d source=%s" % [color, col, source])
+		Telemetry.log_enemy_spawn(0, color, col, 0)
+		return
 	var e: Enemy = enemy_scene.instantiate()
 	e.color = color
 	e.lane_col = col
