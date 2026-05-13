@@ -22,6 +22,28 @@ var last_stage_reached: int = 1
 var completion: String = "in_progress"     # "win" | "fail" | "quit"
 var last_fail_reason: String = ""
 
+# Boon-derived run state — recomputed at every stage start from run_boons so
+# the values stay idempotent (no compounding across stages). See
+# RunState.recompute_boon_state() + MatchScene.start_stage.
+var boon_global_dmg_mult: float = 1.0
+var boon_global_hp_mult: float = 1.0
+var boon_global_atk_speed_mult: float = 1.0       # >1 = faster (divides fire_rate_sec)
+var boon_special_proc_mult: float = 1.0           # Elemental Surge — cleave/exec/slow chance
+var boon_coin_mult: float = 1.0
+var boon_berserker_rage: bool = false
+var boon_vampiric_strike: bool = false
+var boon_hero_synergy: bool = false
+var boon_double_hero_drops: bool = false
+var boon_periodic_hero_spawn: bool = false
+var boon_chain_pop: bool = false
+var boon_treasure_next_wave: bool = false
+# One-shot flags consumed by the next stage / next hero.
+var boon_first_hero_gold_pending: bool = false
+var boon_next_hero_silver_plus_pending: bool = false
+var boon_pending_extra_heroes_next_stage: int = 0
+var boon_pending_extra_heroes_now: int = 0
+var boon_time_stop_pending_sec: float = 0.0
+
 # Per-run rollup stats (for RunEnd display + log_run_end)
 var total_bubbles_fired: int = 0
 var total_pops: int = 0
@@ -53,10 +75,70 @@ func begin_new_run() -> void:
 	total_enemies_leaked = 0
 	total_frenzies = 0
 	run_max_chain = 0
+	# Reset boon one-shots so old picks from prior runs don't leak.
+	boon_first_hero_gold_pending = false
+	boon_next_hero_silver_plus_pending = false
+	boon_pending_extra_heroes_next_stage = 0
+	boon_pending_extra_heroes_now = 0
+	boon_time_stop_pending_sec = 0.0
 
 
 func add_boon(boon_id: String) -> void:
 	run_boons.append(boon_id)
+	# One-shot effects (extra heroes next stage, time stop, etc.) need to fire
+	# exactly once at the moment of pick, so record them now. Multiplier-type
+	# effects are recomputed deterministically at every stage start.
+	record_new_boon(boon_id)
+
+
+# Reset all boon-derived multipliers/flags to defaults and replay run_boons.
+# Idempotent — safe to call every stage start. Effects that are "one-shot"
+# (e.g. spawn 3 heroes next stage) accumulate across stages via the run_boons
+# replay but are decremented on consumption by MatchScene/Lane.
+func recompute_boon_state() -> void:
+	boon_global_dmg_mult = 1.0
+	boon_global_hp_mult = 1.0
+	boon_global_atk_speed_mult = 1.0
+	boon_special_proc_mult = 1.0
+	boon_coin_mult = 1.0
+	boon_berserker_rage = false
+	boon_vampiric_strike = false
+	boon_hero_synergy = false
+	boon_double_hero_drops = false
+	boon_periodic_hero_spawn = false
+	boon_chain_pop = false
+	boon_treasure_next_wave = false
+	# NOTE: pending one-shots are NOT reset here — they're set by MatchScene
+	# only on freshly added boons (see record_new_boon) so they fire once.
+	for id in run_boons:
+		var key: String = BoonDB.get_effect_key(id)
+		match key:
+			"global_dmg_bonus":      boon_global_dmg_mult *= 1.10
+			"global_dmg_bonus_15":   boon_global_dmg_mult *= 1.15
+			"global_hp_bonus_20":    boon_global_hp_mult  *= 1.20
+			"global_atk_speed_15":   boon_global_atk_speed_mult *= 1.15
+			"global_special_proc_25":boon_special_proc_mult *= 1.25
+			"coins_x1_5":            boon_coin_mult *= 1.5
+			"berserker_rage":        boon_berserker_rage = true
+			"vampiric_strike":       boon_vampiric_strike = true
+			"hero_synergy":          boon_hero_synergy = true
+			"double_hero_drops":     boon_double_hero_drops = true
+			"periodic_hero_spawn":   boon_periodic_hero_spawn = true
+			"cluster_chain_pop":     boon_chain_pop = true
+			"treasure_next_wave":    boon_treasure_next_wave = true
+			_: pass  # other effects applied directly on Cannon / Lane / MatchScene
+
+
+# Called by MatchScene when a boon is freshly added (one-shot setup).
+func record_new_boon(boon_id: String) -> void:
+	var key: String = BoonDB.get_effect_key(boon_id)
+	match key:
+		"first_hero_gold":           boon_first_hero_gold_pending = true
+		"next_hero_silver_plus":     boon_next_hero_silver_plus_pending = true
+		"spawn_3_heroes_next_stage": boon_pending_extra_heroes_next_stage += 3
+		"spawn_1_hero_now":          boon_pending_extra_heroes_now += 1
+		"time_stop_10s":             boon_time_stop_pending_sec += 10.0
+		_: pass
 
 
 func record_stage_clear(stage_num: int, pops: int, misses: int, max_chain: int,

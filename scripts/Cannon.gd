@@ -28,6 +28,14 @@ var _next_bomb_at_shot: int = 0
 var color_bias: int = -1            # -1 = none
 var fire_rate_cap_sec: float = 0.5
 var ricochet_count: int = 1
+# New boon flags (B-pass). Most are simple multiplier overrides; the deeply
+# behavior-changing ones (Twin Cannons, Overcharge, etc.) are flagged here so
+# they show up in telemetry/inspector even when the gameplay hook is a stub.
+var boon_color_lock: bool = false       # only fire colors matching cluster majority
+var boon_overcharge: bool = false       # every 5th shot = giant (stub)
+var boon_twin_cannons: bool = false     # 2 bubbles/shot (stub — needs trajectory math)
+var boon_wide_barrel: bool = false      # +20% hit zone (stub — physics)
+var _overcharge_counter: int = 0
 
 # Stage context (MatchScene sets this each stage; payload for telemetry)
 var current_stage_num: int = 1
@@ -327,6 +335,21 @@ func _draw_from_palette() -> int:
 			color_palette = active
 	if color_palette.is_empty():
 		return GameConfig.BubbleColor.RED
+	# §4.2 boon: Color Lock — always serve the cluster's most-common color so the
+	# player never gets a "wrong" bubble. Falls back to weighted/random when the
+	# cluster ref is missing.
+	if boon_color_lock and _cluster_ref != null and _cluster_ref.has_method("get_active_colors"):
+		var counts: Dictionary = {}
+		if _cluster_ref.has_method("get_color_counts"):
+			counts = _cluster_ref.get_color_counts()
+		if not counts.is_empty():
+			var best_color: int = color_palette[0]
+			var best_n: int = -1
+			for c in counts.keys():
+				if int(counts[c]) > best_n:
+					best_n = int(counts[c])
+					best_color = c
+			return best_color
 	# §4.2 boon: color_bias gives +30% weight to that color when present in palette.
 	if color_bias >= 0 and color_bias in color_palette:
 		var weights: Array[float] = []
@@ -364,13 +387,25 @@ func _color_for_enum(c: int) -> Color:
 
 # ============================================================
 # Boon application — called by MatchScene after boon pick (§4.2)
+# Dispatched on BoonDB.effect_key so legacy ids and new ids share handlers.
 # ============================================================
 func apply_boon(boon_id: String) -> void:
+	# Legacy color-bias ids still encode the color in the id, so handle those
+	# explicitly. Everything else routes through effect_key.
 	match boon_id:
-		"red_bias":       color_bias = GameConfig.BubbleColor.RED
-		"blue_bias":      color_bias = GameConfig.BubbleColor.BLUE
-		"yellow_bias":    color_bias = GameConfig.BubbleColor.YELLOW
-		"faster_fire":    fire_rate_cap_sec = 0.4
-		"ricochet_plus":  ricochet_count = 2
-		"extra_special":  pass  # handled by special-bubble timer elsewhere
-		_:                pass  # damage boons handled by Lane / Hero
+		"red_bias":    color_bias = GameConfig.BubbleColor.RED; return
+		"blue_bias":   color_bias = GameConfig.BubbleColor.BLUE; return
+		"yellow_bias": color_bias = GameConfig.BubbleColor.YELLOW; return
+	var key: String = BoonDB.get_effect_key(boon_id)
+	match key:
+		"cannon_fire_rate":      fire_rate_cap_sec = 0.4
+		"cannon_rapid_fire":     fire_rate_cap_sec = min(fire_rate_cap_sec, 0.375)
+		"cannon_infinity_mag":   fire_rate_cap_sec = 0.15
+		"cannon_ricochet":       ricochet_count = max(ricochet_count, 2)
+		"cannon_color_lock":     boon_color_lock = true
+		"cannon_overcharge":     boon_overcharge = true
+		"cannon_twin":           boon_twin_cannons = true
+		"cannon_wide_barrel":    boon_wide_barrel = true
+		"cannon_queue_plus2":    pass  # queue UI only shows 2; visual stub only
+		"extra_special":         pass  # handled by special-bubble timer elsewhere
+		_:                       pass  # hero / lane / matchscene-side effects

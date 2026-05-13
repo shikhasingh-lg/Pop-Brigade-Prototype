@@ -76,6 +76,15 @@ func spawn_hero(color: int, tier: String, col: int, source: String) -> void:
 	# is used. If requested column is empty, place there. If occupied, find the
 	# nearest empty row-0 cell. If row 0 is fully populated, replace the
 	# most-damaged hero in row 0 (tie: oldest).
+	# §4.2 boon overrides (one-shot; consumed in priority order):
+	#   - Legendary Pact: first hero spawned this run is GOLD.
+	#   - Lucky Draw:     next hero is silver-or-better.
+	if RunState.boon_first_hero_gold_pending:
+		tier = "gold"
+		RunState.boon_first_hero_gold_pending = false
+	elif RunState.boon_next_hero_silver_plus_pending and tier == "bronze":
+		tier = "silver"
+		RunState.boon_next_hero_silver_plus_pending = false
 	col = clamp(col, 0, COLS - 1)
 	if hero_scene == null:
 		print("[Lane:no-hero-scene] spawn_hero color=%d tier=%s col=%d source=%s" % [color, tier, col, source])
@@ -467,3 +476,25 @@ func apply_damage_boon(color: int, mult: float) -> void:
 			var h: Hero = _heroes_by_cell[r][c]
 			if h != null and h.color == color:
 				h.damage_mult_class = mult
+
+# §4.2 Hero Synergy — every duplicate hero of a class adds +20% damage to that
+# class. Idempotent: recomputes class multipliers from the current live roster
+# each call. Stacks multiplicatively with apply_damage_boon (color_dmg boons).
+func apply_hero_synergy() -> void:
+	if not RunState.boon_hero_synergy: return
+	var counts: Dictionary = {}
+	for r in ROWS:
+		for c in COLS:
+			var h: Hero = _heroes_by_cell[r][c]
+			if h != null and is_instance_valid(h):
+				counts[h.color] = counts.get(h.color, 0) + 1
+	for color in counts.keys():
+		var dupes: int = max(0, int(counts[color]) - 1)
+		var synergy_mult: float = 1.0 + 0.20 * float(dupes)
+		var base_mult: float = class_damage_mult.get(color, 1.0)
+		var final_mult: float = base_mult * synergy_mult
+		for r in ROWS:
+			for c in COLS:
+				var h: Hero = _heroes_by_cell[r][c]
+				if h != null and h.color == color:
+					h.damage_mult_class = final_mult

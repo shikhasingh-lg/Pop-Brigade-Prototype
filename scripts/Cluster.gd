@@ -440,6 +440,17 @@ func get_active_colors() -> Array:
 			seen[cell.color] = true
 	return seen.keys()
 
+# §4.2 Color Lock boon support — counts per color in the live cluster.
+# Returns { color_enum: int }. Color bombs excluded (they're not a real color).
+func get_color_counts() -> Dictionary:
+	var counts: Dictionary = {}
+	for row in grid:
+		for cell in row:
+			if cell == null: continue
+			if cell.is_special_color_bomb: continue
+			counts[cell.color] = int(counts.get(cell.color, 0)) + 1
+	return counts
+
 # ============================================================
 # Open question OQ8 (§7.1): should falling bubbles convert to enemies?
 # v1 = NO. Re-test in v2 if Q2 passes "too easy".

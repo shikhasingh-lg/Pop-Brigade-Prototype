@@ -81,6 +81,14 @@ var _frenzy_buffed_colors: Dictionary = {}
 var _boss_pending: bool = false
 var _boss_alive: bool = false
 
+# §4.2 Reinforcements boon: every 30 s of Phase 2, +1 hero.
+const PERIODIC_HERO_INTERVAL_SEC: float = 30.0
+var _periodic_hero_timer: float = 0.0
+var _periodic_hero_spawned_this_stage: int = 0
+
+# §4.2 Time Stop boon: pause wave processing for N seconds at Phase 2 start.
+var _time_stop_remaining: float = 0.0
+
 # Descent is deferred until the player's shot resolves so the cluster doesn't
 # drop out from under an in-flight bubble. Queued on fire, relieved on pop,
 # net applied on bubble_resolved.
@@ -221,8 +229,13 @@ func start_stage(num: int, run_boons: Array) -> void:
 	hud_stage_label.text = "Stage %d/5" % num
 	if cannon:
 		cannon.current_stage_num = num
+	# Recompute all idempotent boon state (multipliers, flags) from the boon list,
+	# then dispatch per-system apply (cannon color bias, lane class dmg, etc.).
+	RunState.recompute_boon_state()
 	for boon_id in run_boons:
 		_apply_boon(boon_id)
+	_periodic_hero_timer = 0.0
+	_periodic_hero_spawned_this_stage = 0
 	# Carry heroes forward from the previous stage (HP + cell preserved; no heal,
 	# no reposition). Empty on the first stage of a run. OQ11 toggle: when
 	# carry_over_heroes_enabled is false, the lane stays empty each stage.
@@ -230,8 +243,24 @@ func start_stage(num: int, run_boons: Array) -> void:
 	if lane and GameConfig.carry_over_heroes_enabled and not RunState.run_heroes.is_empty():
 		heroes_carried_in = RunState.run_heroes.size()
 		lane.restore_heroes(RunState.run_heroes)
+	# §4.2 one-shot boons: Recruitment Drive / Fresh Blood spawn heroes pre-Phase 1.
+	# Both queues drain on the FIRST stage that runs after the boon is picked.
+	_consume_pending_extra_heroes()
 	Telemetry.log_stage_start(num, GameConfig.get_stage_start_rows(num), player_hp, heroes_carried_in)
 	_enter_phase_1(heroes_carried_in)
+
+
+func _consume_pending_extra_heroes() -> void:
+	if lane == null: return
+	var total: int = RunState.boon_pending_extra_heroes_next_stage + RunState.boon_pending_extra_heroes_now
+	if total <= 0: return
+	var palette: Array = GameConfig.all_bubble_colors()
+	for i in range(total):
+		var c: int = palette[i % palette.size()]
+		var col: int = (i * 3) % Lane.COLS
+		lane.spawn_hero(c, "bronze", col, "boon_recruitment")
+	RunState.boon_pending_extra_heroes_next_stage = 0
+	RunState.boon_pending_extra_heroes_now = 0
 
 # ============================================================
 # Phase transitions
@@ -306,7 +335,13 @@ func _enter_phase_2() -> void:
 			GameConfig.BubbleColor.BLUE:   wave_comp["B"] += 1
 			GameConfig.BubbleColor.YELLOW: wave_comp["Y"] += 1
 	Telemetry.log_phase2_start(stage_num, 0, {}, _wave_size_total, wave_comp)
-	_show_banner("PHASE 2 — DEFEND", 0.8)
+	# §4.2 Time Stop: drain pending stop-seconds at P2 start. One-shot per pick.
+	if RunState.boon_time_stop_pending_sec > 0.0:
+		_time_stop_remaining = RunState.boon_time_stop_pending_sec
+		RunState.boon_time_stop_pending_sec = 0.0
+		_show_banner("TIME STOP — %ds" % int(_time_stop_remaining), 1.0)
+	else:
+		_show_banner("PHASE 2 — DEFEND", 0.8)
 
 # ============================================================
 # Per-frame phase tick
@@ -335,9 +370,25 @@ func _process_transition(delta: float) -> void:
 		_enter_phase_2()
 
 func _process_phase_2(delta: float) -> void:
-	_phase2_time_remaining -= delta
+	# §4.2 Time Stop: freeze wave spawning + enemy movement is approximated by
+	# only freezing the spawn cadence (enemies already on the lane keep walking
+	# but heroes keep firing too — the net effect is "fewer adds, breathing room").
+	if _time_stop_remaining > 0.0:
+		_time_stop_remaining -= delta
+	else:
+		_phase2_time_remaining -= delta
+	# §4.2 Reinforcements: drop a bronze hero every 30 s of Phase 2.
+	if RunState.boon_periodic_hero_spawn and lane != null and _time_stop_remaining <= 0.0:
+		_periodic_hero_timer += delta
+		if _periodic_hero_timer >= PERIODIC_HERO_INTERVAL_SEC:
+			_periodic_hero_timer = 0.0
+			var palette: Array = GameConfig.all_bubble_colors()
+			var c: int = palette[_periodic_hero_spawned_this_stage % palette.size()]
+			var col: int = (_periodic_hero_spawned_this_stage * 3) % Lane.COLS
+			lane.spawn_hero(c, "bronze", col, "boon_reinforcements")
+			_periodic_hero_spawned_this_stage += 1
 	# Spawn next wave enemy on cadence.
-	if not _wave_queue.is_empty():
+	if not _wave_queue.is_empty() and _time_stop_remaining <= 0.0:
 		_wave_spawn_timer -= delta
 		if _wave_spawn_timer <= 0:
 			var entry: Dictionary = _wave_queue.pop_front()
@@ -383,10 +434,16 @@ func _on_match_popped(color: int, match_size: int, chain_count: int, _positions:
 	elif match_size == 4: tier = "silver"
 	var spawn_col: int = _column_for_match(_positions)
 	var spawned: Array = []
+	# §4.2 Twin Souls — every hero drop is doubled (1 → 2).
+	var drop_count: int = 2 if RunState.boon_double_hero_drops else 1
 	for hero_color in hero_colors:
-		lane.spawn_hero(hero_color, tier, spawn_col, "hero_bubble")
-		RunState.total_heroes_spawned += 1
-		spawned.append({"color": hero_color, "tier": tier})
+		for _i in range(drop_count):
+			lane.spawn_hero(hero_color, tier, spawn_col, "hero_bubble")
+			RunState.total_heroes_spawned += 1
+			spawned.append({"color": hero_color, "tier": tier})
+	# §4.2 Hero Synergy — re-count duplicates after this batch landed.
+	if RunState.boon_hero_synergy:
+		lane.apply_hero_synergy()
 	Telemetry.log_match_pop(match_size, color, chain_count, spawned)
 	_pending_descent_relief += GameConfig.cluster_descent_pop_relief_rows
 	# §3.5 color frenzy: full-clear of any color in Phase 1 stamps a persistent
@@ -563,7 +620,9 @@ func _fail_stage(reason: String) -> void:
 	tw.tween_callback(func(): stage_failed.emit(failed_stage, failed_reason))
 
 # ============================================================
-# §4.2 — apply a boon at stage start
+# §4.2 — apply a boon at stage start.
+# Most multiplier/flag effects already landed in RunState.recompute_boon_state.
+# This function only handles per-system dispatch for Cannon + Lane.
 # ============================================================
 func _apply_boon(boon_id: String) -> void:
 	cannon.apply_boon(boon_id)
@@ -572,6 +631,10 @@ func _apply_boon(boon_id: String) -> void:
 		"blue_dmg":   lane.apply_damage_boon(GameConfig.BubbleColor.BLUE,   1.25)
 		"yellow_dmg": lane.apply_damage_boon(GameConfig.BubbleColor.YELLOW, 1.25)
 		_: pass
+	# §4.2 Hero Synergy — re-evaluate duplicate-class buff now that this boon
+	# is live (safe to call on every boon since lane.apply_synergy is idempotent).
+	if lane != null and RunState.boon_hero_synergy:
+		lane.apply_hero_synergy()
 
 # ============================================================
 # Banner (GET READY! / phase / stage end)

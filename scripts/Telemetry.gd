@@ -249,10 +249,11 @@ func log_color_frenzy(color: int, heroes_at_trigger_count: int) -> void:
 		"color": color, "heroes_at_trigger_count": heroes_at_trigger_count,
 	})
 
-func log_boon_picked(stage_num: int, boon_id: String, alternatives: Array) -> void:
+func log_boon_picked(stage_num: int, boon_id: String, alternatives: Array, rarity: String = "") -> void:
 	log_event("boon_picked", {
 		"stage_num": stage_num,
 		"boon_id": boon_id,
+		"rarity": rarity,
 		"alternatives": alternatives,
 	})
 

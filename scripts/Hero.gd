@@ -46,6 +46,10 @@ func _apply_tier_stats() -> void:
 		"bronze": hp = GameConfig.bronze_hp; damage = GameConfig.bronze_dmg
 		"silver": hp = GameConfig.silver_hp; damage = GameConfig.silver_dmg
 		"gold":   hp = GameConfig.gold_hp;   damage = GameConfig.gold_dmg
+	# §4.2 boons: global HP / damage multipliers (Iron Skin, Heavy Shot, Sharp Steel).
+	# Damage feeds damage_mult_global so it stacks cleanly with color frenzy.
+	hp = int(round(float(hp) * RunState.boon_global_hp_mult))
+	damage_mult_global *= RunState.boon_global_dmg_mult
 
 func _apply_class_stats() -> void:
 	# Per-class fire rate. Range is encoded in Lane's class-specific pickers
@@ -60,6 +64,9 @@ func _apply_class_stats() -> void:
 		GameConfig.BubbleColor.YELLOW:
 			fire_rate_sec = GameConfig.yellow_fire_rate_sec
 			range_cells = GameConfig.yellow_reach_rows
+	# §4.2 boon: Quick Feet — divide fire rate by atk-speed multiplier.
+	if RunState.boon_global_atk_speed_mult > 0.0:
+		fire_rate_sec = fire_rate_sec / RunState.boon_global_atk_speed_mult
 
 func _apply_visual() -> void:
 	if _sprite == null: return
@@ -97,12 +104,32 @@ func _try_fire() -> void:
 		GameConfig.BubbleColor.BLUE:   _fire_blue()
 		GameConfig.BubbleColor.YELLOW: _fire_yellow()
 
-# Final per-hit damage including frenzy + class boon + color counter.
+# Final per-hit damage including frenzy + class boon + color counter +
+# Berserker Rage (§4.2 boon: 2× dmg while below 30% HP).
 func _damage_against(target: Enemy, class_dmg_mult: float) -> int:
 	var dmg_f: float = float(damage) * damage_mult_global * damage_mult_class * class_dmg_mult
 	if target.color == color:
 		dmg_f *= GameConfig.color_counter_multiplier
-	return int(round(dmg_f))
+	if RunState.boon_berserker_rage and _hp_ratio() < 0.30:
+		dmg_f *= 2.0
+	var dealt: int = int(round(dmg_f))
+	# Vampiric Strike — heal 10% of damage dealt, capped at max HP.
+	if RunState.boon_vampiric_strike and dealt > 0:
+		hp = min(_max_hp(), hp + int(round(float(dealt) * 0.10)))
+	return dealt
+
+func _max_hp() -> int:
+	var base: int
+	match tier:
+		"silver": base = GameConfig.silver_hp
+		"gold":   base = GameConfig.gold_hp
+		_:        base = GameConfig.bronze_hp
+	return int(round(float(base) * RunState.boon_global_hp_mult))
+
+func _hp_ratio() -> float:
+	var m: int = _max_hp()
+	if m <= 0: return 1.0
+	return float(hp) / float(m)
 
 # ----- Fire Knight (RED): cone + chance to cleave row neighbors -----
 func _fire_red() -> void:
