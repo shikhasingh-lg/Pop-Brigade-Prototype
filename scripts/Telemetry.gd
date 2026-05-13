@@ -85,11 +85,60 @@ func log_event(event_name: String, payload: Dictionary = {}) -> void:
 func log_loadout_pick(cannon_color: int) -> void:
 	log_event("loadout_pick", { "cannon_color": cannon_color })
 
-func log_stage_start(stage_num: int, cluster_start_rows: int, hp: int) -> void:
+func log_stage_start(stage_num: int, cluster_start_rows: int, hp: int, heroes_carried_in: int = 0) -> void:
 	log_event("stage_start", {
 		"stage_num": stage_num,
 		"cluster_start_rows": cluster_start_rows,
 		"hp": hp,
+		"heroes_carried_in": heroes_carried_in,
+	})
+
+func log_phase1_start(stage_num: int, cluster_start_rows: int, heroes_carried_in: int) -> void:
+	log_event("phase1_start", {
+		"stage_num": stage_num,
+		"cluster_start_rows": cluster_start_rows,
+		"heroes_carried_in": heroes_carried_in,
+	})
+
+func log_phase1_end(stage_num: int, ms_elapsed: int, reason: String,
+		heroes_built_total: int, heroes_by_color: Dictionary,
+		bubbles_fired: int, bubbles_popped: int, bubbles_lost: int,
+		max_chain: int, frenzied_colors: Array) -> void:
+	# reason ∈ { "cluster_cleared", "time_cap", "descent_complete" }
+	log_event("phase1_end", {
+		"stage_num": stage_num,
+		"ms_elapsed": ms_elapsed,
+		"reason": reason,
+		"heroes_built_total": heroes_built_total,
+		"heroes_by_color": heroes_by_color,
+		"bubbles_fired": bubbles_fired,
+		"bubbles_popped": bubbles_popped,
+		"bubbles_lost": bubbles_lost,
+		"max_chain": max_chain,
+		"frenzied_colors": frenzied_colors,
+	})
+
+func log_phase2_start(stage_num: int, hero_count: int, hero_composition: Dictionary,
+		wave_size: int, wave_composition: Dictionary) -> void:
+	log_event("phase2_start", {
+		"stage_num": stage_num,
+		"hero_count": hero_count,
+		"hero_composition": hero_composition,
+		"wave_size": wave_size,
+		"wave_composition": wave_composition,
+	})
+
+func log_phase2_end(stage_num: int, ms_elapsed: int, result: String,
+		hp_remaining: int, enemies_killed: int, enemies_leaked: int, heroes_lost: int) -> void:
+	# result ∈ { "clear", "fail" }
+	log_event("phase2_end", {
+		"stage_num": stage_num,
+		"ms_elapsed": ms_elapsed,
+		"result": result,
+		"hp_remaining": hp_remaining,
+		"enemies_killed": enemies_killed,
+		"enemies_leaked": enemies_leaked,
+		"heroes_lost": heroes_lost,
 	})
 
 func log_bubble_fired(stage_num: int, bubble_color: int, queue_swap_used: bool,
@@ -126,17 +175,18 @@ func log_cluster_descend(rows_now: int, time_since_last_descend_ms: int) -> void
 		"time_since_last_descend_ms": time_since_last_descend_ms,
 	})
 
-func log_bubble_converted_to_enemy(color: int, lane_col: int, source: String) -> void:
-	# source ∈ { "descent", "below_line_attach" }
-	log_event("bubble_converted_to_enemy", {
+func log_bubble_lost_below_line(color: int, source: String) -> void:
+	# Phase 1 only — bubble vanished without producing a hero or enemy.
+	# source ∈ { "descent", "below_line_fire" }
+	# Replaces the deprecated log_bubble_converted_to_enemy (V2 design, removed 2026-05-12).
+	log_event("bubble_lost_below_line", {
 		"color": color,
-		"lane_col": lane_col,
 		"source": source,
 	})
 
 func log_hero_spawn(color: int, tier: String, lane_col: int, lane_row: int, source: String) -> void:
 	# tier ∈ { "bronze", "silver", "gold" }
-	# source ∈ { "match", "cascade" }
+	# source ∈ { "match", "cascade", "carryover" }
 	log_event("hero_spawn", {
 		"color": color, "tier": tier,
 		"lane_col": lane_col, "lane_row": lane_row,
@@ -154,10 +204,11 @@ func log_hero_death(hero_id: int, color: int, tier: String, lifetime_ms: int, da
 		"lifetime_ms": lifetime_ms, "damage_dealt_total": damage_total,
 	})
 
-func log_enemy_spawn(enemy_id: int, color: int, lane_col: int, lane_row_top: int) -> void:
+func log_enemy_spawn(enemy_id: int, color: int, lane_col: int, lane_row_top: int, wave_index: int = -1) -> void:
 	log_event("enemy_spawn", {
 		"enemy_id": enemy_id, "color": color,
 		"lane_col": lane_col, "lane_row_top": lane_row_top,
+		"wave_index": wave_index,
 	})
 
 func log_enemy_death(enemy_id: int, color: int, killed_by_color: int, lifetime_ms: int) -> void:
@@ -171,9 +222,11 @@ func log_enemy_reached_cannon(enemy_id: int, color: int, hp_damage: int) -> void
 		"enemy_id": enemy_id, "color": color, "hp_damage": hp_damage,
 	})
 
-func log_color_frenzy(color: int, heroes_buffed_count: int) -> void:
+func log_color_frenzy(color: int, heroes_at_trigger_count: int) -> void:
+	# Triggered in Phase 1 when a color is fully cleared from the cluster.
+	# Buff persists through Phase 2 (does not expire mid-combat in V8 design).
 	log_event("color_frenzy_trigger", {
-		"color": color, "heroes_buffed_count": heroes_buffed_count,
+		"color": color, "heroes_at_trigger_count": heroes_at_trigger_count,
 	})
 
 func log_boon_picked(stage_num: int, boon_id: String, alternatives: Array) -> void:
@@ -183,16 +236,19 @@ func log_boon_picked(stage_num: int, boon_id: String, alternatives: Array) -> vo
 		"alternatives": alternatives,
 	})
 
-func log_stage_clear(stage_num: int, hp_remaining: int, ms_elapsed: int,
+func log_stage_clear(stage_num: int, hp_remaining: int, total_ms: int,
+		p1_ms: int, p2_ms: int,
 		total_pops: int, total_misses: int, max_chain: int) -> void:
 	log_event("stage_clear", {
 		"stage_num": stage_num, "hp_remaining": hp_remaining,
-		"ms_elapsed": ms_elapsed,
+		"total_ms": total_ms, "p1_ms": p1_ms, "p2_ms": p2_ms,
 		"total_pops": total_pops, "total_misses": total_misses, "max_chain": max_chain,
 	})
 
 func log_stage_fail(stage_num: int, hp_remaining: int, reason: String, ms_elapsed: int) -> void:
-	# reason ∈ { "hp", "cluster_reached_lane" }
+	# V8 design: only "hp" is a fail reason. Cluster reaching the lane in Phase 1
+	# is no longer a fail — Phase 1 just ends and Phase 2 begins.
+	# reason ∈ { "hp" }
 	log_event("stage_fail", {
 		"stage_num": stage_num, "hp_remaining": hp_remaining,
 		"reason": reason, "ms_elapsed": ms_elapsed,
@@ -211,8 +267,9 @@ func log_run_end(stages_cleared: int, total_ms: int, total_pops: int, total_miss
 		"completion": completion,
 	})
 
-func log_pause_open(stage_num: int, ms_into_stage: int) -> void:
-	log_event("pause_open", { "stage_num": stage_num, "ms_into_stage": ms_into_stage })
+func log_pause_open(stage_num: int, phase: int, ms_into_stage: int) -> void:
+	# phase ∈ { 1, 2 }
+	log_event("pause_open", { "stage_num": stage_num, "phase": phase, "ms_into_stage": ms_into_stage })
 
 func log_pause_resume(pause_duration_ms: int) -> void:
 	log_event("pause_resume", { "pause_duration_ms": pause_duration_ms })

@@ -40,10 +40,15 @@ const COLOR_HEX := {
 @export var cluster_start_rows_s1_s2: int = 3
 @export var cluster_start_rows_s3_s4: int = 5
 @export var cluster_start_rows_s5:    int = 7   # boss
-@export var cluster_descent_rate_sec: float = 8.0   # 1 row per N sec
-@export var cluster_descent_pause_after_pop_sec: float = 1.0
+@export var cluster_descent_rate_sec: float = 8.0   # legacy time-based; unused since shot-triggered descent
+@export var cluster_descent_pause_after_pop_sec: float = 1.0   # legacy; unused
 @export var cluster_grow_trigger_misses: int = 8    # adds 1 row at top
 @export var bubble_diameter_px: int = 72        # at 720-wide reference
+# Shot-triggered descent (idle pacing — cluster only moves when player fires)
+@export var cluster_descent_rows_per_shot_s1_s2: int = 2   # stage 1-2: ~6 shots to first conversion
+@export var cluster_descent_rows_per_shot_s3_s4: int = 3   # stage 3-4: ~4 shots
+@export var cluster_descent_rows_per_shot_s5:    int = 3   # boss: ~3 shots
+@export var cluster_descent_pop_relief_rows: int = 1       # rows refunded when a shot results in a pop
 
 # ============================================================
 # §3.3 — Aim & fire
@@ -108,10 +113,30 @@ const COLOR_HEX := {
 # ============================================================
 @export_group("Player & Stage")
 @export var stage_start_hp: int = 100
-@export var stage_clear_no_enemies_sec: float = 3.0   # grace period
+@export var stage_clear_no_enemies_sec: float = 2.0   # §3.10: 2s after last enemy death
 @export var coins_per_stage_clear: int = 50           # in-run, logged only
 @export var boss_hp: int = 1000
 @export var boss_damage_on_reach: int = 50
+
+# ============================================================
+# §3.6 / §4.3 — Phase 2 wave script (V8: scripted, not derived from Phase 1)
+# Wave composition per stage = array of enemy colors, spawned in order at
+# `wave_spawn_interval_sec` apart, round-robin across lane columns.
+# Boss for Stage 5 is appended after the walker wave — handled in MatchScene.
+# ============================================================
+@export_group("Phase Pacing")
+@export var wave_spawn_interval_sec: float = 1.5
+@export var phase_transition_sec: float = 1.0   # GET READY wipe duration
+@export var phase1_cap_s1: float = 45.0
+@export var phase1_cap_s2: float = 50.0
+@export var phase1_cap_s3: float = 60.0
+@export var phase1_cap_s4: float = 65.0
+@export var phase1_cap_s5: float = 75.0
+@export var phase2_cap_s1: float = 30.0
+@export var phase2_cap_s2: float = 35.0
+@export var phase2_cap_s3: float = 45.0
+@export var phase2_cap_s4: float = 50.0
+@export var phase2_cap_s5: float = 90.0
 
 # ============================================================
 # §4.3 — Stage pacing (enemy spawn cadence, base — pre-conversion)
@@ -141,6 +166,11 @@ func get_stage_start_rows(stage_num: int) -> int:
 	if stage_num <= 4: return cluster_start_rows_s3_s4
 	return cluster_start_rows_s5
 
+func get_stage_descent_rows_per_shot(stage_num: int) -> int:
+	if stage_num <= 2: return cluster_descent_rows_per_shot_s1_s2
+	if stage_num <= 4: return cluster_descent_rows_per_shot_s3_s4
+	return cluster_descent_rows_per_shot_s5
+
 func get_stage_spawn_rate_sec(stage_num: int) -> float:
 	match stage_num:
 		1: return s1_enemy_spawn_sec
@@ -155,3 +185,34 @@ func get_color_bomb_next_cadence() -> int:
 
 func all_bubble_colors() -> Array:
 	return [BubbleColor.RED, BubbleColor.BLUE, BubbleColor.YELLOW]
+
+# §4.3 — Wave composition lookup. Boss in Stage 5 is appended by MatchScene.
+func get_wave_composition(stage_num: int) -> Array:
+	var R: int = BubbleColor.RED
+	var B: int = BubbleColor.BLUE
+	var Y: int = BubbleColor.YELLOW
+	match stage_num:
+		1: return [R, R, R, R, R]                                  # 5 Red
+		2: return [R, R, R, R, B, B]                               # 4R + 2B
+		3: return [R, R, R, R, B, B, B, Y, Y]                      # 4R + 3B + 2Y
+		4: return [R, R, R, R, R, B, B, B, Y, Y, Y]                # 5R + 3B + 3Y
+		5: return [R, R, R, R, R, R, B, B, B, B, Y, Y, Y, Y]       # 6R + 4B + 4Y (+ boss)
+		_: return [R, R, R, R, R]
+
+func get_phase1_cap_sec(stage_num: int) -> float:
+	match stage_num:
+		1: return phase1_cap_s1
+		2: return phase1_cap_s2
+		3: return phase1_cap_s3
+		4: return phase1_cap_s4
+		5: return phase1_cap_s5
+		_: return phase1_cap_s1
+
+func get_phase2_cap_sec(stage_num: int) -> float:
+	match stage_num:
+		1: return phase2_cap_s1
+		2: return phase2_cap_s2
+		3: return phase2_cap_s3
+		4: return phase2_cap_s4
+		5: return phase2_cap_s5
+		_: return phase2_cap_s1

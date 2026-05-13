@@ -5,7 +5,8 @@ class_name Bubble
 extends Area2D
 
 signal attached_to_cluster(row: int, col: int)
-signal converted_to_enemy(color: int, lane_col: int)
+# Conversion-to-enemy is emitted by Cluster (see Cluster.bubble_crossed_spawn_line),
+# not by the Bubble itself — kept as documentation, no Bubble-level signal needed.
 
 @export_enum("Red", "Blue", "Yellow") var color: int = 0
 @export var is_special_color_bomb: bool = false
@@ -14,16 +15,21 @@ var grid_row: int = -1
 var grid_col: int = -1
 var velocity: Vector2 = Vector2.ZERO
 var in_flight: bool = false
+var cluster_ref: Cluster = null
 
 @onready var sprite: ColorRect = $Sprite
 
-# TODO §3.3: When fired, set velocity and is_flight=true. Move in _physics_process.
-# TODO §3.2: On collision with cluster bubble or top wall, call attach_to_grid(row, col).
-# TODO §3.3: On collision with side wall, reflect velocity.x (ricochet).
-# TODO §3.2: If attaching below spawn line, emit converted_to_enemy() instead.
+const BUBBLE_RADIUS := 32.0
+const FIELD_WIDTH := 720.0
+const FIELD_HEIGHT := 1560.0
+const TOP_BOUND_Y := 120.0  # bottom of top HUD; bubbles passing this attach to cluster
+
+var _attaching: bool = false
 
 func _ready() -> void:
 	_apply_color()
+	# Area2D overlap → attach when in flight and the other Area is a stationary cluster bubble.
+	area_entered.connect(_on_area_entered)
 
 func set_color(c: int) -> void:
 	color = c
@@ -39,6 +45,63 @@ func _apply_color() -> void:
 		GameConfig.BubbleColor.RED:    sprite.color = Color.html("#e74c3c")
 		GameConfig.BubbleColor.BLUE:   sprite.color = Color.html("#3498db")
 		GameConfig.BubbleColor.YELLOW: sprite.color = Color.html("#f1c40f")
+
+# Launch this bubble from a global position with velocity, aimed at a Cluster.
+# Caller must add the bubble to the scene tree first; this just sets state.
+func launch(start_global_pos: Vector2, vel: Vector2, cluster: Cluster) -> void:
+	global_position = start_global_pos
+	velocity = vel
+	in_flight = true
+	cluster_ref = cluster
+	_attaching = false
+
+func _physics_process(delta: float) -> void:
+	if not in_flight or _attaching: return
+	position += velocity * delta
+	# §3.3 side-wall ricochet
+	if position.x < BUBBLE_RADIUS and velocity.x < 0:
+		position.x = BUBBLE_RADIUS
+		velocity.x = -velocity.x
+	elif position.x > FIELD_WIDTH - BUBBLE_RADIUS and velocity.x > 0:
+		position.x = FIELD_WIDTH - BUBBLE_RADIUS
+		velocity.x = -velocity.x
+	# §3.2 top-wall attach (no neighbor to snap against — snap to top row)
+	if position.y < TOP_BOUND_Y:
+		position.y = TOP_BOUND_Y
+		_begin_attach()
+		return
+	# Safety: if a bubble ever exits the field (e.g., aim sideways and grazes), free it.
+	if position.y > FIELD_HEIGHT + BUBBLE_RADIUS:
+		queue_free()
+
+func _on_area_entered(area: Area2D) -> void:
+	if not in_flight or _attaching: return
+	if not (area is Bubble): return
+	var other: Bubble = area
+	if other == self: return
+	if other.in_flight: return  # ignore in-flight ↔ in-flight (shouldn't happen v1)
+	# Resolve cluster from the bubble we collided with if not already set.
+	if cluster_ref == null:
+		var p := other.get_parent()
+		if p is Cluster:
+			cluster_ref = p
+	_begin_attach()
+
+# Two-phase attach: flip state immediately so _physics_process / future signals bail out,
+# then defer the actual reparent so it doesn't run inside a physics callback (Godot forbids
+# reparenting/disabling a CollisionObject2D mid-physics — flushing-queries errors).
+func _begin_attach() -> void:
+	if _attaching: return
+	_attaching = true
+	in_flight = false
+	velocity = Vector2.ZERO
+	call_deferred("_do_attach")
+
+func _do_attach() -> void:
+	if cluster_ref == null:
+		queue_free()
+		return
+	cluster_ref.attach_bubble(self, global_position)
 
 func attach_to_grid(row: int, col: int) -> void:
 	grid_row = row

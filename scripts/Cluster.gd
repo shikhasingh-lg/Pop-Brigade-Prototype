@@ -8,23 +8,32 @@ extends Node2D
 signal cluster_grew(new_height: int)
 signal cluster_descended(rows_now: int)
 signal match_popped(color: int, match_size: int, chain_count: int, positions: Array)
-signal bubble_crossed_spawn_line(color: int, col: int)
+# Bubble vanished past the spawn line (V8: lost opportunity only, no enemy spawn).
+# Source = "descent" (cluster bubble crossed during descent) or "below_line_fire"
+# (fired bubble's chosen cell was below the line). Used for telemetry + fade VFX.
+signal bubble_lost_below_line(color: int, col: int, source: String)
 signal cluster_reached_lane()  # game over signal
+# Emitted after every attach_bubble call completes (pop, miss, or below-line convert).
+# MatchScene listens to this to apply queued descent AFTER the player's shot landed,
+# so descent never moves the cluster out from under an in-flight bubble.
+signal bubble_resolved(was_pop: bool)
 
 const COLS_EVEN := 8
 const COLS_ODD  := 7   # offset rows have 1 less for hex packing
 const BUBBLE_SIZE_PX := 64.0
+const BUBBLE_RADIUS_PX := 32.0  # half BUBBLE_SIZE_PX; used for visual-edge spawn-line checks
 const ROW_HEIGHT_PX  := 56.0  # tighter than diameter for hex tessellation
 
 # Grid storage: rows × cols. null = empty cell.
 var grid: Array = []        # grid[row][col] = Bubble | null
 var current_height: int = 0
-var _descent_timer: float = 0.0
 var _consecutive_misses: int = 0
 var _last_descend_ms: int = 0
 var _initial_y: float = 0.0
 var _is_descending: bool = false
 var _stage_over: bool = false
+var _spawn_line_world_y: float = 0.0  # fixed world Y of the spawn line, cached at stage start
+var _pending_rows: int = 0            # shot-triggered descent queue
 
 @export var bubble_scene: PackedScene
 @export var spawn_line_y: float = 0.0   # set by MatchScene, in Cluster-local space
@@ -56,9 +65,13 @@ func setup_for_stage(stage_num: int) -> void:
 			row_data.append(b)
 		grid.append(row_data)
 	position.y = _initial_y
-	_descent_timer = 0.0
 	_consecutive_misses = 0
 	_stage_over = false
+	_pending_rows = 0
+	_is_descending = false
+	# Spawn line is a FIXED world Y captured at stage start. Without caching, the
+	# crossing check would chase the cluster down and never trigger.
+	_spawn_line_world_y = global_position.y + spawn_line_y
 	_last_descend_ms = Time.get_ticks_msec()
 
 func _clear_visual_grid() -> void:
@@ -116,20 +129,25 @@ func _hex_neighbors(row: int, col: int) -> Array:
 	return out
 
 # ============================================================
-# §3.2 — Descent (visual + spawn-line crossing)
+# §3.2 — Descent (shot-triggered; no time-based pressure)
+# Cluster only moves when the player fires. Each shot pushes the cluster down
+# by N rows (per-stage, see GameConfig.get_stage_descent_rows_per_shot).
 # ============================================================
-func _process(delta: float) -> void:
-	if _stage_over: return
-	if _is_descending: return
-	_descent_timer += delta
-	if _descent_timer >= GameConfig.cluster_descent_rate_sec:
-		_descent_timer = 0.0
-		_descend_one_row()
+func descend_rows(n: int) -> void:
+	if _stage_over or n <= 0: return
+	_pending_rows += n
+	if not _is_descending:
+		_descend_pending()
 
-func _descend_one_row() -> void:
+func _descend_pending() -> void:
+	if _pending_rows <= 0: return
+	var rows: int = _pending_rows
+	_pending_rows = 0
 	_is_descending = true
 	var tween := create_tween()
-	tween.tween_property(self, "position:y", position.y + ROW_HEIGHT_PX, 0.4) \
+	# Tween scales with row count so multi-row descents feel weighty but not slow.
+	var duration: float = clamp(0.25 + 0.08 * float(rows), 0.25, 0.7)
+	tween.tween_property(self, "position:y", position.y + ROW_HEIGHT_PX * rows, duration) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 	tween.finished.connect(_on_descent_finished)
 	var now_ms := Time.get_ticks_msec()
@@ -139,18 +157,17 @@ func _descend_one_row() -> void:
 
 func _on_descent_finished() -> void:
 	_is_descending = false
-	# Any bubble whose post-descent global Y crossed the spawn line converts.
-	# We check global_position because Cluster has moved down by ROW_HEIGHT_PX.
-	var spawn_line_global_y := global_position.y + spawn_line_y
+	# V8 spec (§3.2, §3.5, §5.1): bubbles that descend past the spawn line VANISH.
+	# No enemy is produced in Phase 1 — only a lost-opportunity event for telemetry.
+	# Compare bubble BOTTOM edge so the visual matches the rule the player sees.
 	var any_remaining := false
 	for r in range(grid.size()):
 		var row_data: Array = grid[r]
 		for c in range(row_data.size()):
 			var b: Bubble = row_data[c]
 			if b == null: continue
-			if b.global_position.y >= spawn_line_global_y:
-				emit_signal("bubble_crossed_spawn_line", b.color, c)
-				Telemetry.log_bubble_converted_to_enemy(b.color, c, "descent")
+			if b.global_position.y + BUBBLE_RADIUS_PX >= _spawn_line_world_y:
+				emit_signal("bubble_lost_below_line", b.color, c, "descent")
 				row_data[c] = null
 				b.queue_free()
 			else:
@@ -158,10 +175,28 @@ func _on_descent_finished() -> void:
 	if not any_remaining and grid.size() > 0:
 		_stage_over = true
 		emit_signal("cluster_reached_lane")
+	# Drain queued descents that arrived mid-tween.
+	if _pending_rows > 0:
+		call_deferred("_descend_pending")
 
-func pause_descent(seconds: float) -> void:
-	# Called by MatchScene after a pop (§3.2: descent paused 1s after every successful pop).
-	_descent_timer = -seconds
+func refund_descent_rows(n: int) -> void:
+	# Pop reward: pull the cluster back up by N rows (cancels part of a queued descent
+	# OR rewinds prior descents to relieve pressure). Never above the stage's starting y.
+	if n <= 0 or _stage_over: return
+	if _pending_rows > 0:
+		var absorbed: int = min(n, _pending_rows)
+		_pending_rows -= absorbed
+		n -= absorbed
+	if n <= 0: return
+	var target_y: float = max(_initial_y, position.y - ROW_HEIGHT_PX * n)
+	if is_equal_approx(target_y, position.y): return
+	var tween := create_tween()
+	tween.tween_property(self, "position:y", target_y, 0.25) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+func pause_descent(_seconds: float) -> void:
+	# Legacy no-op (time-based pacing replaced with shot-triggered descent).
+	pass
 
 # ============================================================
 # §3.2 — Attach + match
@@ -195,13 +230,16 @@ func attach_bubble(bubble: Bubble, at_world_pos: Vector2) -> void:
 	var cell := _find_nearest_empty_cell(local_pos)
 	if cell.x < 0:
 		bubble.queue_free()
+		emit_signal("bubble_resolved", false)
 		return
 	var target_local := _cell_to_local_pos(cell.x, cell.y)
-	# §3.2: if would attach below spawn line, convert to enemy instead.
-	if target_local.y > spawn_line_y:
-		emit_signal("bubble_crossed_spawn_line", bubble.color, cell.y)
-		Telemetry.log_bubble_converted_to_enemy(bubble.color, cell.y, "below_line_attach")
+	# V8 spec (§3.5 "bubble_lost_below_line"): fired bubble whose nearest cell is
+	# below the spawn line VANISHES — no enemy, no hero, just a wasted shot.
+	var target_world_y: float = global_position.y + target_local.y
+	if target_world_y + BUBBLE_RADIUS_PX >= _spawn_line_world_y:
+		emit_signal("bubble_lost_below_line", bubble.color, cell.y, "below_line_fire")
 		bubble.queue_free()
+		emit_signal("bubble_resolved", false)
 		return
 	# Grow grid downward if needed
 	while cell.x >= grid.size():
@@ -214,7 +252,8 @@ func attach_bubble(bubble: Bubble, at_world_pos: Vector2) -> void:
 	Telemetry.log_bubble_attached(bubble.color, cell.x, cell.y, _count_bubbles())
 	# Match detection
 	var match_positions := _find_match(cell.x, cell.y, bubble.color)
-	if match_positions.size() >= 3:
+	var was_pop := match_positions.size() >= 3
+	if was_pop:
 		_consecutive_misses = 0
 		_pop_match(bubble.color, match_positions)
 	else:
@@ -222,6 +261,7 @@ func attach_bubble(bubble: Bubble, at_world_pos: Vector2) -> void:
 		if _consecutive_misses >= GameConfig.cluster_grow_trigger_misses:
 			_consecutive_misses = 0
 			_grow_top_row()
+	emit_signal("bubble_resolved", was_pop)
 
 # §3.2: flood-fill same-color from (row, col). Color bombs match any color.
 func _find_match(row: int, col: int, target_color: int) -> Array:
@@ -336,6 +376,31 @@ func _count_bubbles() -> int:
 		for cell in row:
 			if cell != null: n += 1
 	return n
+
+# V8 §3.8: Phase 1 ends when the cluster has zero bubbles remaining ABOVE the
+# spawn line (popped or descended). MatchScene polls this each tick.
+func bubbles_above_spawn_line_count() -> int:
+	var n := 0
+	for r in range(grid.size()):
+		var row_data: Array = grid[r]
+		for c in range(row_data.size()):
+			var b: Bubble = row_data[c]
+			if b == null: continue
+			if b.global_position.y + BUBBLE_RADIUS_PX < _spawn_line_world_y:
+				n += 1
+	return n
+
+# V8 §3.8: Phase 1 time cap hit — remaining cluster bubbles are wiped (no enemy).
+func sweep_all() -> void:
+	for r in range(grid.size()):
+		var row_data: Array = grid[r]
+		for c in range(row_data.size()):
+			var b: Bubble = row_data[c]
+			if b == null: continue
+			emit_signal("bubble_lost_below_line", b.color, c, "phase1_cap_sweep")
+			row_data[c] = null
+			b.queue_free()
+	_stage_over = true
 
 # §3.3: colors still present in cluster (used by Cannon to filter the queue palette).
 func get_active_colors() -> Array:
