@@ -1,0 +1,24 @@
+# Godot 4+ editor cache
+.godot/
+/android/
+
+# Godot import cache + presets
+.import/
+export.cfg
+export_presets.cfg
+
+# Translations auto-generated from CSV
+*.translation
+
+# Mono / C# build artifacts
+.mono/
+data_*/
+mono_crash.*.json
+
+# macOS / editor junk
+.DS_Store
+.directory
+*~
+
+# godot-prototype is its own git repo — track it independently, not via this one
+godot-prototype/

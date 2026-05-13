@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pop Brigade — Match Screen Mockup (v1 greybox)</title>
+<style>
+  :root {
+    --bg: #1a1a1f;
+    --panel: #2a2a32;
+    --panel-light: #3a3a45;
+    --line: #4a4a55;
+    --text: #e8e8ee;
+    --text-dim: #888892;
+    --red: #e74c3c;
+    --blue: #3498db;
+    --yellow: #f1c40f;
+    --hp: #2ecc71;
+    --spawn-glow: #ff6b6b;
+    --frenzy: #f39c12;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f0f12;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+    gap: 16px;
+  }
+  h1 { font-size: 14px; color: var(--text-dim); font-weight: 500; }
+  .controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 360px;
+  }
+  .controls button {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .controls button:hover { background: var(--panel-light); }
+
+  /* Phone frame */
+  .phone {
+    width: 360px;
+    height: 780px;
+    background: var(--bg);
+    border: 2px solid #333;
+    border-radius: 32px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  }
+
+  /* TOP HUD — 60px */
+  .hud-top {
+    height: 60px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    font-size: 13px;
+    z-index: 5;
+  }
+  .hp-wrap {
+    display: flex; align-items: center; gap: 8px;
+    flex: 1;
+  }
+  .hp-label { font-weight: 600; }
+  .hp-bar-bg {
+    width: 80px; height: 10px;
+    background: #1a1a1f;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .hp-bar-fill {
+    height: 100%;
+    width: 70%;
+    background: var(--hp);
+    transition: width 0.3s;
+  }
+  .hp-num { font-size: 11px; color: var(--text-dim); }
+  .stage-label { font-weight: 600; }
+  .pause-btn {
+    width: 28px; height: 28px;
+    background: var(--panel-light);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .pause-btn:hover { background: var(--line); }
+
+  /* CLUSTER ZONE — ~55% */
+  .cluster-zone {
+    flex: 0 0 380px;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(180deg, #1a1a1f 0%, #1f1f25 100%);
+  }
+  .cluster {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    transition: top 0.6s ease-in;
+  }
+  .bubble-row {
+    display: flex;
+    height: 31px;
+    margin-bottom: -2px;
+  }
+  .bubble-row.offset { margin-left: 18px; }
+  .bubble {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    margin-right: 2px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px;
+    color: rgba(0,0,0,0.5);
+    font-weight: 700;
+    box-shadow: inset -3px -3px 6px rgba(0,0,0,0.25), inset 2px 2px 4px rgba(255,255,255,0.3);
+  }
+  .bubble.red    { background: var(--red); }
+  .bubble.blue   { background: var(--blue); }
+  .bubble.yellow { background: var(--yellow); }
+  .bubble.bomb   {
+    background: conic-gradient(var(--red), var(--yellow), var(--blue), var(--red));
+    animation: spin 2s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .bubble.empty { background: transparent; box-shadow: none; }
+
+  /* Spawn line */
+  .spawn-line {
+    position: absolute;
+    bottom: 8px;
+    left: 0; right: 0;
+    height: 3px;
+    background: var(--spawn-glow);
+    box-shadow: 0 0 8px var(--spawn-glow), 0 0 16px var(--spawn-glow);
+    animation: pulse 1.4s ease-in-out infinite;
+    z-index: 2;
+  }
+  .spawn-line-label {
+    position: absolute;
+    bottom: 14px;
+    right: 8px;
+    font-size: 9px;
+    color: var(--spawn-glow);
+    background: rgba(0,0,0,0.5);
+    padding: 1px 6px;
+    border-radius: 4px;
+    z-index: 3;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+
+  /* LANE — ~30% */
+  .lane {
+    flex: 0 0 215px;
+    position: relative;
+    background: linear-gradient(180deg, #15151a 0%, #1a1a20 100%);
+    border-top: 1px dashed var(--line);
+    overflow: hidden;
+  }
+  .lane-grid {
+    position: absolute;
+    inset: 4px 12px 4px 12px;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(6, 1fr);
+    gap: 2px;
+  }
+  .lane-cell {
+    border: 1px dashed rgba(255,255,255,0.05);
+    border-radius: 3px;
+    position: relative;
+  }
+  .enemy {
+    position: absolute;
+    inset: 4px;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    clip-path: polygon(50% 100%, 0 0, 100% 0); /* triangle pointing down */
+  }
+  .enemy.red    { background: var(--red); }
+  .enemy.blue   { background: var(--blue); }
+  .enemy.yellow { background: var(--yellow); }
+  .enemy-label {
+    position: absolute;
+    bottom: -2px;
+    font-size: 8px;
+    color: var(--text-dim);
+  }
+  .hero {
+    position: absolute;
+    inset: 5px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(0,0,0,0.7);
+    border: 2px solid rgba(255,255,255,0.3);
+  }
+  .hero.red    { background: var(--red); }
+  .hero.blue   { background: var(--blue); }
+  .hero.yellow { background: var(--yellow); }
+  .hero.silver { box-shadow: 0 0 6px rgba(255,255,255,0.5); }
+  .hero.gold   { box-shadow: 0 0 10px var(--yellow); border-color: var(--yellow); }
+
+  /* Hero attack lines (decorative) */
+  .attack-line {
+    position: absolute;
+    background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0));
+    width: 2px;
+    pointer-events: none;
+    animation: shoot 0.6s linear infinite;
+  }
+  @keyframes shoot {
+    0% { opacity: 0; }
+    20% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* BOTTOM HUD — 15% */
+  .hud-bottom {
+    flex: 1;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 0 14px;
+    position: relative;
+  }
+  .cannon-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .cannon {
+    width: 56px; height: 56px;
+    background: var(--panel-light);
+    border: 2px solid var(--line);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .cannon::after {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 14px; height: 10px;
+    background: var(--line);
+    border-radius: 3px 3px 0 0;
+  }
+  .cannon .bubble {
+    width: 28px; height: 28px;
+  }
+  .on-deck {
+    width: 44px; height: 44px;
+    background: var(--panel-light);
+    border: 1px dashed var(--line);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  .on-deck:hover { transform: scale(1.08); border-color: var(--text-dim); }
+  .on-deck .bubble {
+    width: 28px; height: 28px;
+  }
+  .on-deck-label {
+    position: absolute;
+    bottom: 6px;
+    font-size: 8px;
+    color: var(--text-dim);
+  }
+
+  /* Aim trajectory */
+  .aim-trajectory {
+    position: absolute;
+    pointer-events: none;
+    z-index: 4;
+  }
+
+  /* Annotation overlay */
+  .annotations {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .annotation {
+    position: absolute;
+    background: rgba(0,0,0,0.85);
+    color: var(--yellow);
+    border: 1px solid var(--yellow);
+    padding: 3px 7px;
+    font-size: 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: auto;
+  }
+  .annotation::before {
+    content: '';
+    position: absolute;
+    width: 30px; height: 1px;
+    background: var(--yellow);
+  }
+  .annotations.hidden { display: none; }
+
+  /* Frenzy effect */
+  .frenzy-glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 30px var(--frenzy);
+    opacity: 0;
+    transition: opacity 0.4s;
+    z-index: 3;
+  }
+  .frenzy-glow.active { opacity: 1; }
+
+  .info {
+    max-width: 360px;
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .info strong { color: var(--text); }
+</style>
+</head>
+<body>
+  <h1>Pop Brigade — v1 Greybox Match Screen Mockup</h1>
+
+  <div class="controls">
+    <button onclick="toggleAnnotations()">Toggle annotations</button>
+    <button onclick="resetCluster()">Reset cluster</button>
+    <button onclick="triggerFrenzy()">Trigger color frenzy</button>
+    <button onclick="forceDescend()">Force descend</button>
+    <button onclick="popDamage()">-10 HP</button>
+  </div>
+
+  <div class="phone">
+    <!-- TOP HUD -->
+    <div class="hud-top">
+      <div class="hp-wrap">
+        <span class="hp-label">HP</span>
+        <div class="hp-bar-bg"><div class="hp-bar-fill" id="hpBar"></div></div>
+        <span class="hp-num" id="hpNum">70/100</span>
+      </div>
+      <span class="stage-label">Stage 2/5</span>
+      <div class="pause-btn" title="Pause">⏸</div>
+    </div>
+
+    <!-- CLUSTER ZONE -->
+    <div class="cluster-zone">
+      <div class="cluster" id="cluster"></div>
+      <div class="spawn-line"></div>
+      <div class="spawn-line-label">spawn line</div>
+      <div class="frenzy-glow" id="frenzyGlow"></div>
+    </div>
+
+    <!-- LANE -->
+    <div class="lane">
+      <div class="lane-grid" id="laneGrid"></div>
+    </div>
+
+    <!-- BOTTOM HUD -->
+    <div class="hud-bottom">
+      <div class="cannon-wrap">
+        <div class="cannon">
+          <div class="bubble red"></div>
+        </div>
+        <div class="on-deck" onclick="swapBubble()" title="Tap to swap">
+          <div class="bubble blue" id="onDeckBubble"></div>
+        </div>
+      </div>
+      <div class="on-deck-label">tap to swap</div>
+    </div>
+
+    <!-- ANNOTATIONS -->
+    <div class="annotations" id="annotations">
+      <div class="annotation" style="top: 10px; left: 14px;">HP bar (Q1: must be felt)</div>
+      <div class="annotation" style="top: 10px; right: 50px;">Stage indicator</div>
+      <div class="annotation" style="top: 380px; left: 100px; color: #ff6b6b; border-color: #ff6b6b;">▼ Spawn line (V2 critical)</div>
+      <div class="annotation" style="top: 470px; left: 8px;">Lane 8×6 grid</div>
+      <div class="annotation" style="bottom: 80px; right: 8px;">On-deck = tap to swap</div>
+      <div class="annotation" style="bottom: 30px; left: 60px;">Cannon (current bubble)</div>
+    </div>
+  </div>
+
+  <div class="info">
+    <p><strong>Greybox readability test:</strong> show this to a tester without explanation. They should be able to point to the cluster, spawn line, lane, heroes, enemies, cannon, and on-deck within 30s.</p>
+    <p style="margin-top: 8px;"><strong>Animations live:</strong> spawn line pulse · cluster descends 1 row every 8s · color frenzy glow on demand · hero attack lines.</p>
+    <p style="margin-top: 8px;"><strong>Not animated (yet):</strong> firing a bubble, popping a match, bubble→enemy conversion. Wireframe only — feel signal needs the playable build.</p>
+  </div>
+
+<script>
+  // ---------------- Cluster state ----------------
+  // 8 columns wide. Each row has 8 (even row) or 7 (odd row, offset). Hex grid.
+  // v1 stage 2 starts at 3 rows. We'll start at 5 rows to show mid-stage state.
+  const colors = ['red', 'blue', 'yellow'];
+  let clusterRows = [];
+  let descentOffset = 0; // px offset added to top
+
+  function randomColor() {
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+
+  function genRow(width) {
+    return Array.from({length: width}, () => randomColor());
+  }
+
+  function buildInitialCluster() {
+    clusterRows = [
+      { offset: false, cells: genRow(8) },
+      { offset: true,  cells: genRow(7) },
+      { offset: false, cells: genRow(8) },
+      { offset: true,  cells: genRow(7) },
+      { offset: false, cells: genRow(8) },
+    ];
+    // sprinkle in a color bomb
+    clusterRows[1].cells[3] = 'bomb';
+  }
+
+  function renderCluster() {
+    const cluster = document.getElementById('cluster');
+    cluster.innerHTML = '';
+    cluster.style.top = (12 + descentOffset) + 'px';
+    clusterRows.forEach(row => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'bubble-row' + (row.offset ? ' offset' : '');
+      row.cells.forEach(color => {
+        const b = document.createElement('div');
+        b.className = 'bubble ' + color;
+        rowEl.appendChild(b);
+      });
+      cluster.appendChild(rowEl);
+    });
+  }
+
+  // ---------------- Lane state ----------------
+  // 8 columns × 6 rows. Heroes near bottom, enemies near top.
+  function buildLane() {
+    const grid = document.getElementById('laneGrid');
+    grid.innerHTML = '';
+    // 48 cells, fill l→r, top→bottom
+    const lane = Array.from({length: 48}, () => null);
+
+    // Enemies (top of lane)
+    // (col, row)  row 0 = top
+    lane[0 + 1] = { type: 'enemy', color: 'red' };    // row 0 col 1
+    lane[0 + 3] = { type: 'enemy', color: 'yellow' }; // row 0 col 3
+    lane[8 + 5] = { type: 'enemy', color: 'blue' };   // row 1 col 5
+    lane[16 + 2] = { type: 'enemy', color: 'red' };   // row 2 col 2
+
+    // Heroes (bottom-up fill)
+    lane[40 + 0] = { type: 'hero', color: 'red', tier: 'B' };
+    lane[40 + 1] = { type: 'hero', color: 'blue', tier: 'S' };
+    lane[40 + 2] = { type: 'hero', color: 'yellow', tier: 'B' };
+    lane[40 + 3] = { type: 'hero', color: 'red', tier: 'G' };
+    lane[40 + 5] = { type: 'hero', color: 'yellow', tier: 'B' };
+    lane[40 + 6] = { type: 'hero', color: 'blue', tier: 'B' };
+    lane[32 + 2] = { type: 'hero', color: 'red', tier: 'S' };
+    lane[32 + 6] = { type: 'hero', color: 'yellow', tier: 'B' };
+
+    for (let i = 0; i < 48; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'lane-cell';
+      const unit = lane[i];
+      if (unit) {
+        const el = document.createElement('div');
+        if (unit.type === 'enemy') {
+          el.className = 'enemy ' + unit.color;
+        } else {
+          el.className = 'hero ' + unit.color + (unit.tier === 'S' ? ' silver' : unit.tier === 'G' ? ' gold' : '');
+          el.textContent = unit.tier;
+        }
+        cell.appendChild(el);
+      }
+      grid.appendChild(cell);
+    }
+  }
+
+  // ---------------- Descent loop ----------------
+  // §3.2: 1 row per 8 seconds.
+  function descendOneRow() {
+    descentOffset += 33; // approx row height
+    const cluster = document.getElementById('cluster');
+    cluster.style.top = (12 + descentOffset) + 'px';
+    // Cap descent so it doesn't drift off forever in a mockup
+    if (descentOffset > 200) {
+      descentOffset = 0;
+      cluster.style.transition = 'none';
+      cluster.style.top = '12px';
+      // Re-enable transition next tick
+      requestAnimationFrame(() => {
+        cluster.style.transition = 'top 0.6s ease-in';
+      });
+    }
+  }
+
+  function forceDescend() { descendOneRow(); }
+
+  // ---------------- HP control ----------------
+  let hp = 70;
+  function setHP(value) {
+    hp = Math.max(0, Math.min(100, value));
+    document.getElementById('hpBar').style.width = hp + '%';
+    document.getElementById('hpNum').textContent = hp + '/100';
+  }
+  function popDamage() { setHP(hp - 10); }
+
+  // ---------------- Frenzy effect ----------------
+  function triggerFrenzy() {
+    const g = document.getElementById('frenzyGlow');
+    g.classList.add('active');
+    setTimeout(() => g.classList.remove('active'), 10000);
+  }
+
+  // ---------------- Swap on-deck ----------------
+  function swapBubble() {
+    const onDeck = document.getElementById('onDeckBubble');
+    const cur = onDeck.className.replace('bubble ', '');
+    const next = colors[(colors.indexOf(cur) + 1) % colors.length];
+    onDeck.className = 'bubble ' + next;
+  }
+
+  // ---------------- Annotations toggle ----------------
+  function toggleAnnotations() {
+    document.getElementById('annotations').classList.toggle('hidden');
+  }
+
+  // ---------------- Reset ----------------
+  function resetCluster() {
+    descentOffset = 0;
+    buildInitialCluster();
+    renderCluster();
+  }
+
+  // ---------------- Init ----------------
+  buildInitialCluster();
+  renderCluster();
+  buildLane();
+  setHP(70);
+  setInterval(descendOneRow, 8000);
+</script>
+</body>
+</html>
