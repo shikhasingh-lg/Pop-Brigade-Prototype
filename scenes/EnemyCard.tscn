@@ -1,0 +1,33 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/EnemyCard.gd" id="1_card"]
+
+[node name="EnemyCard" type="Control"]
+custom_minimum_size = Vector2(160, 200)
+script = ExtResource("1_card")
+
+[node name="Portrait" type="TextureRect" parent="."]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -64.0
+offset_right = 64.0
+offset_bottom = 128.0
+grow_horizontal = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="NameLabel" type="Label" parent="."]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -80.0
+offset_top = -40.0
+offset_right = 80.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "Enemy"
+horizontal_alignment = 1
+vertical_alignment = 1

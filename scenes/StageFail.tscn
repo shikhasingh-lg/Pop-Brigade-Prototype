@@ -1,0 +1,55 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/StageFail.gd" id="1_fail"]
+
+[node name="StageFail" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 0
+script = ExtResource("1_fail")
+
+[node name="Dim" type="ColorRect" parent="."]
+layout_mode = 0
+offset_right = 720.0
+offset_bottom = 1560.0
+color = Color(0, 0, 0, 0.7)
+
+[node name="Modal" type="ColorRect" parent="."]
+layout_mode = 0
+offset_left = 120.0
+offset_top = 540.0
+offset_right = 600.0
+offset_bottom = 1020.0
+color = Color(0.165, 0.094, 0.094, 1)
+
+[node name="Title" type="Label" parent="Modal"]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 40.0
+offset_right = 480.0
+offset_bottom = 130.0
+theme_override_colors/font_color = Color(1, 0.42, 0.42, 1)
+theme_override_font_sizes/font_size = 48
+text = "STAGE FAIL"
+horizontal_alignment = 1
+
+[node name="Reached" type="Label" parent="Modal"]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 180.0
+offset_right = 480.0
+offset_bottom = 240.0
+theme_override_colors/font_color = Color(0.91, 0.91, 0.93, 1)
+theme_override_font_sizes/font_size = 28
+text = "Reached Stage 1/5"
+horizontal_alignment = 1
+
+[node name="EndButton" type="Button" parent="Modal"]
+offset_left = 90.0
+offset_top = 320.0
+offset_right = 390.0
+offset_bottom = 420.0
+theme_override_font_sizes/font_size = 32
+text = "END RUN"

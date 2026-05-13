@@ -23,6 +23,11 @@ config/icon="res://icon.svg"
 [autoload]
 
 GameConfig="*res://scripts/GameConfig.gd"
+HeroRoster="*res://scripts/HeroRoster.gd"
+EnemyRoster="*res://scripts/EnemyRoster.gd"
+BubbleRoster="*res://scripts/BubbleRoster.gd"
+RunState="*res://scripts/RunState.gd"
+Vfx="*res://scripts/Vfx.gd"
 Telemetry="*res://scripts/Telemetry.gd"
 
 [display]

@@ -222,6 +222,26 @@ func log_enemy_reached_cannon(enemy_id: int, color: int, hp_damage: int) -> void
 		"enemy_id": enemy_id, "color": color, "hp_damage": hp_damage,
 	})
 
+func log_hero_drag(hero_id: int, from_col: int, to_col: int, dragged_ms: int,
+		color: int = -1, tier: String = "") -> void:
+	# v2 §3.2: player repositioned a hero along row 0. Schema per design-spec §6.2.
+	log_event("hero_drag", {
+		"hero_id": hero_id,
+		"from_col": from_col,
+		"to_col": to_col,
+		"dragged_ms": dragged_ms,
+		"color": color,   # convenience denormalisation; spec calls for hero_id only
+		"tier": tier,
+	})
+
+func log_phase1_early_clear_bonus(stage_num: int, secs_remaining: int, bonus_heroes: int) -> void:
+	# OQ10 (§7.1): cluster cleared before P1 time cap → bonus heroes awarded.
+	log_event("phase1_early_clear_bonus", {
+		"stage_num": stage_num,
+		"secs_remaining": secs_remaining,
+		"bonus_heroes": bonus_heroes,
+	})
+
 func log_color_frenzy(color: int, heroes_at_trigger_count: int) -> void:
 	# Triggered in Phase 1 when a color is fully cleared from the cluster.
 	# Buff persists through Phase 2 (does not expire mid-combat in V8 design).

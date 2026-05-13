@@ -1,0 +1,81 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/StageClear.gd" id="1_clear"]
+
+[node name="StageClear" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_clear")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 0
+offset_right = 720.0
+offset_bottom = 1560.0
+color = Color(0.08, 0.122, 0.08, 0.94)
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 160.0
+offset_right = 720.0
+offset_bottom = 240.0
+theme_override_colors/font_color = Color(0.55, 1, 0.55, 1)
+theme_override_font_sizes/font_size = 52
+text = "STAGE N CLEAR"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="."]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 280.0
+offset_right = 720.0
+offset_bottom = 340.0
+theme_override_colors/font_color = Color(0.91, 0.91, 0.93, 1)
+theme_override_font_sizes/font_size = 32
+text = "Pick one boon:"
+horizontal_alignment = 1
+
+[node name="Cards" type="Node" parent="."]
+
+[node name="Card1" type="Button" parent="Cards"]
+offset_left = 50.0
+offset_top = 420.0
+offset_right = 250.0
+offset_bottom = 780.0
+theme_override_font_sizes/font_size = 24
+text = "+30%
+RED
+bubbles"
+
+[node name="Card2" type="Button" parent="Cards"]
+offset_left = 260.0
+offset_top = 420.0
+offset_right = 460.0
+offset_bottom = 780.0
+theme_override_font_sizes/font_size = 24
+text = "+25%
+DMG
+all heros"
+
+[node name="Card3" type="Button" parent="Cards"]
+offset_left = 470.0
+offset_top = 420.0
+offset_right = 670.0
+offset_bottom = 780.0
+theme_override_font_sizes/font_size = 24
+text = "+1
+spcl bubble
+/30s"
+
+[node name="Hint" type="Label" parent="."]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 830.0
+offset_right = 720.0
+offset_bottom = 880.0
+theme_override_colors/font_color = Color(0.55, 0.55, 0.6, 1)
+theme_override_font_sizes/font_size = 22
+text = "tap to continue"
+horizontal_alignment = 1

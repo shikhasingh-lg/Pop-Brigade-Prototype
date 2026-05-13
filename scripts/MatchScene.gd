@@ -5,16 +5,40 @@
 class_name MatchScene
 extends Node2D
 
+# Signals to the Main router (replace inline auto-advance once router owns flow).
+signal stage_cleared(stage_num: int)
+signal stage_failed(stage_num: int, reason: String)
+signal quit_run_requested(stage_num: int)
+
+const PAUSE_OVERLAY_SCENE := preload("res://scenes/PauseOverlay.tscn")
+
 @onready var cluster: Cluster = $ClusterZone/Cluster
 @onready var lane: Lane = $LaneZone/Lane
 @onready var cannon: Cannon = $HUDBottom/Cannon
 @onready var hud_hp_bar: ProgressBar = $HUDTop/HPBar
 @onready var hud_stage_label: Label = $HUDTop/StageLabel
+@onready var pause_icon: Label = $HUDTop/PauseIcon
+
+# Base / defended object (added in MatchScene.tscn). HP shown on the base
+# itself, plus damage tint + smoke + shake when enemies reach the wall.
+@onready var base_node: Node2D = $Base
+@onready var base_wall: ColorRect = $Base/Wall
+@onready var base_hp_bar_fill: ColorRect = $Base/HPBarFill
+@onready var base_crack: ColorRect = $Base/Crack
+@onready var base_smoke: ColorRect = $Base/Smoke
+const BASE_HP_BAR_LEFT: float = 42.0
+const BASE_HP_BAR_RIGHT: float = 678.0
+const BASE_WALL_FULL: Color = Color(0.275, 0.212, 0.157, 1)
+const BASE_WALL_HURT: Color = Color(0.45, 0.20, 0.12, 1)   # at 0 HP
 
 enum Phase { PHASE_1, TRANSITION, PHASE_2, STAGE_CLEAR, STAGE_FAIL }
 
+# Set by Main router before _ready() so we boot into the right stage.
+var start_stage_num: int = 1
+
 var stage_num: int = 1
 var player_hp: int = 100
+var _pause_overlay: Control = null
 var stage_start_ms: int = 0
 var _stage_active: bool = false
 
@@ -66,11 +90,27 @@ var _pending_descent_relief: int = 0
 # GET READY! / phase banner (created at runtime — no scene edit needed).
 var _phase_banner: Label = null
 
+# Hero drag (v2 §3.2 — Phase 2 agency surface, allowed in P1/transition too).
+# Modal: while dragging, cannon aim is blocked. v1 = row 0 only, no cooldown.
+var _drag_hero: Hero = null
+var _drag_start_col: int = -1
+var _drag_start_ms: int = 0
+
+# Debug menu (F4) — runtime toggles for OQ A/B (§7.1). Built once in _ready,
+# shown/hidden via key. Reads + writes GameConfig fields live.
+var _debug_panel: Panel = null
+var _dbg_carry_chk: CheckButton = null
+var _dbg_early_clear_spin: SpinBox = null
+var _dbg_transition_spin: SpinBox = null
+var _dbg_ricochet_spin: SpinBox = null
+var _dbg_status_label: Label = null
+
 # ============================================================
 # Lifecycle
 # ============================================================
 func _ready() -> void:
 	_setup_phase_banner()
+	_setup_debug_panel()
 	if cluster:
 		cluster.match_popped.connect(_on_match_popped)
 		cluster.bubble_lost_below_line.connect(_on_bubble_lost_below_line)
@@ -81,8 +121,82 @@ func _ready() -> void:
 		lane.lane_cleared.connect(_on_lane_cleared)
 	if cannon:
 		cannon.bubble_fired.connect(_on_bubble_fired)
-	# v1 dev flow: auto-start Stage 1 with no boons. Replace with MetaHub→Loadout in W3.
-	start_stage(1, [])
+	_setup_pause_overlay()
+	# Boot into start_stage_num (set by Main router) with the run's accumulated boons.
+	start_stage(start_stage_num, RunState.run_boons)
+
+# Debug stage controls (combat-design.md test loop):
+#   F2 → next stage (wrap 5 → 1)
+#   F3 → restart current stage
+#   1..5 (top row) → jump to that stage directly
+func _input(event: InputEvent) -> void:
+	# Hero drag (combat-design.md §3.2). Must run BEFORE the cannon sees the
+	# event — we block the cannon via set_aim_blocked while a drag is live.
+	# Disabled once the stage has ended so corpses can't be grabbed.
+	if not _stage_active: return
+	if event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event
+		if mb.button_index != MOUSE_BUTTON_LEFT: return
+		if mb.pressed:
+			_try_begin_hero_drag(mb.position)
+		elif _drag_hero != null:
+			_end_hero_drag(mb.position)
+	elif event is InputEventMouseMotion and _drag_hero != null:
+		_update_hero_drag(event.position)
+
+func _try_begin_hero_drag(touch_pos: Vector2) -> void:
+	if lane == null: return
+	var h: Hero = lane.find_hero_at_world_pos(touch_pos)
+	if h == null: return
+	_drag_hero = h
+	_drag_start_col = h.lane_col
+	_drag_start_ms = Time.get_ticks_msec()
+	if cannon: cannon.set_aim_blocked(true)
+	h.modulate = Color(1.15, 1.15, 1.15, 0.9)  # drag highlight
+	h.z_index = 10  # draw above neighbors during drag
+
+func _update_hero_drag(touch_pos: Vector2) -> void:
+	if _drag_hero == null or not is_instance_valid(_drag_hero): return
+	# Follow finger horizontally; lock to row-0 y so heroes don't drift up/down.
+	var local_x: float = touch_pos.x - lane.global_position.x
+	_drag_hero.position.x = clamp(local_x, Lane.CELL_W * 0.5, (Lane.COLS - 0.5) * Lane.CELL_W)
+	_drag_hero.position.y = -Lane.CELL_H * 0.5
+
+func _end_hero_drag(touch_pos: Vector2) -> void:
+	var h: Hero = _drag_hero
+	_drag_hero = null
+	if cannon: cannon.set_aim_blocked(false)
+	if h == null or not is_instance_valid(h):
+		return
+	h.modulate = Color(1, 1, 1, 1)
+	h.z_index = 0
+	var target_col: int = lane.world_x_to_row0_col(touch_pos.x)
+	var end_col: int = lane.move_hero(h, target_col)
+	if end_col >= 0 and end_col != _drag_start_col:
+		var dragged_ms: int = Time.get_ticks_msec() - _drag_start_ms
+		Telemetry.log_hero_drag(h.get_instance_id(), _drag_start_col, end_col,
+			dragged_ms, h.color, h.tier)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	var key: int = event.keycode
+	if key == KEY_F2:
+		var nxt: int = stage_num + 1
+		if nxt > 5: nxt = 1
+		_debug_jump_to_stage(nxt)
+	elif key == KEY_F3:
+		_debug_jump_to_stage(stage_num)
+	elif key == KEY_F4:
+		_toggle_debug_panel()
+	elif key >= KEY_1 and key <= KEY_5:
+		_debug_jump_to_stage(key - KEY_0)
+
+func _debug_jump_to_stage(num: int) -> void:
+	num = clamp(num, 1, 5)
+	print("[Debug] Jumping to stage %d" % num)
+	if lane: lane.reset()
+	start_stage(num, [])
 
 func start_stage(num: int, run_boons: Array) -> void:
 	stage_num = num
@@ -103,18 +217,26 @@ func start_stage(num: int, run_boons: Array) -> void:
 	_boss_alive = false
 	cluster.setup_for_stage(num)
 	hud_hp_bar.value = player_hp
+	_update_base_visuals()
 	hud_stage_label.text = "Stage %d/5" % num
 	if cannon:
 		cannon.current_stage_num = num
 	for boon_id in run_boons:
 		_apply_boon(boon_id)
-	Telemetry.log_stage_start(num, GameConfig.get_stage_start_rows(num), player_hp)
-	_enter_phase_1()
+	# Carry heroes forward from the previous stage (HP + cell preserved; no heal,
+	# no reposition). Empty on the first stage of a run. OQ11 toggle: when
+	# carry_over_heroes_enabled is false, the lane stays empty each stage.
+	var heroes_carried_in: int = 0
+	if lane and GameConfig.carry_over_heroes_enabled and not RunState.run_heroes.is_empty():
+		heroes_carried_in = RunState.run_heroes.size()
+		lane.restore_heroes(RunState.run_heroes)
+	Telemetry.log_stage_start(num, GameConfig.get_stage_start_rows(num), player_hp, heroes_carried_in)
+	_enter_phase_1(heroes_carried_in)
 
 # ============================================================
 # Phase transitions
 # ============================================================
-func _enter_phase_1() -> void:
+func _enter_phase_1(heroes_carried_in: int = 0) -> void:
 	_phase = Phase.PHASE_1
 	_phase_start_ms = Time.get_ticks_msec()
 	_phase1_time_remaining = GameConfig.get_phase1_cap_sec(stage_num)
@@ -122,7 +244,7 @@ func _enter_phase_1() -> void:
 	if lane:
 		lane.combat_enabled = false
 		lane.frenzied_colors = {}
-	Telemetry.log_phase1_start(stage_num, GameConfig.get_stage_start_rows(stage_num), 0)
+	Telemetry.log_phase1_start(stage_num, GameConfig.get_stage_start_rows(stage_num), heroes_carried_in)
 	_show_banner("PHASE 1 — BUILD", 0.8)
 
 func _enter_transition(reason: String) -> void:
@@ -131,11 +253,31 @@ func _enter_transition(reason: String) -> void:
 	_transition_timer = GameConfig.phase_transition_sec
 	if cannon: cannon.set_input_enabled(false)
 	_p1_ms = Time.get_ticks_msec() - _phase_start_ms
+	# OQ10 (§7.1): early-clear bonus heroes. Only when Phase 1 ends via
+	# cluster_cleared (not the time cap) and the config knob is enabled.
+	if reason == "cluster_cleared":
+		_award_early_clear_bonus()
 	# Telemetry rollup payload — heroes_by_color not tracked yet, pass empty.
 	Telemetry.log_phase1_end(stage_num, _p1_ms, reason,
 		0, {}, _bubbles_fired, _total_pops, _bubbles_lost, _max_chain,
 		_frenzy_buffed_colors.keys())
 	_show_banner("GET READY!", GameConfig.phase_transition_sec)
+
+func _award_early_clear_bonus() -> void:
+	var secs_per_hero: int = GameConfig.phase1_early_clear_secs_per_bonus_hero
+	if secs_per_hero <= 0 or lane == null: return
+	var time_remaining: float = max(0.0, _phase1_time_remaining)
+	var bonus_count: int = int(time_remaining / float(secs_per_hero))
+	if bonus_count <= 0: return
+	# Cycle colors so bonus heroes aren't all one class — they reflect what's
+	# usable right now (cluster is empty, so use the v1 palette directly).
+	var palette: Array = GameConfig.all_bubble_colors()
+	for i in range(bonus_count):
+		var color: int = palette[i % palette.size()]
+		# spawn_col cycles too; lane will fall back to nearest empty cell.
+		var col: int = (i * 3) % Lane.COLS
+		lane.spawn_hero(color, "bronze", col, "early_clear_bonus")
+	Telemetry.log_phase1_early_clear_bonus(stage_num, int(time_remaining), bonus_count)
 
 func _enter_phase_2() -> void:
 	_phase = Phase.PHASE_2
@@ -155,8 +297,10 @@ func _enter_phase_2() -> void:
 			lane.apply_color_frenzy_persistent(color)
 		lane.combat_enabled = true
 	# wave_composition payload: { "R": n, "B": n, "Y": n }
+	# _wave_queue is now Array[Dictionary] of {color, variant}.
 	var wave_comp: Dictionary = {"R": 0, "B": 0, "Y": 0}
-	for c in _wave_queue:
+	for entry in _wave_queue:
+		var c: int = entry["color"]
 		match c:
 			GameConfig.BubbleColor.RED:    wave_comp["R"] += 1
 			GameConfig.BubbleColor.BLUE:   wave_comp["B"] += 1
@@ -196,8 +340,10 @@ func _process_phase_2(delta: float) -> void:
 	if not _wave_queue.is_empty():
 		_wave_spawn_timer -= delta
 		if _wave_spawn_timer <= 0:
-			var color: int = _wave_queue.pop_front()
-			lane.spawn_wave_enemy(color, _wave_next_col, _wave_index)
+			var entry: Dictionary = _wave_queue.pop_front()
+			var color: int = entry["color"]
+			var variant: String = entry.get("variant", "walker")
+			lane.spawn_wave_enemy(color, _wave_next_col, _wave_index, variant, stage_num)
 			_wave_next_col = (_wave_next_col + 1) % Lane.COLS
 			_wave_index += 1
 			_wave_spawn_timer = GameConfig.wave_spawn_interval_sec
@@ -225,18 +371,22 @@ func _on_bubble_fired(_bubble: Bubble, _angle_deg: float, _time_to_fire_ms: int)
 	_bubbles_fired += 1
 	_pending_descent_rows += GameConfig.get_stage_descent_rows_per_shot(stage_num)
 
-func _on_match_popped(color: int, match_size: int, chain_count: int, _positions: Array) -> void:
+func _on_match_popped(color: int, match_size: int, chain_count: int, _positions: Array, hero_colors: Array) -> void:
 	_total_pops += 1
 	_max_chain = max(_max_chain, chain_count)
-	# V1 simplification: exactly ONE hero per pop. Tier scales with match size,
-	# but no extra bronze for big matches and no cascade heroes — kept the rule
-	# legible for paper-testing the V8 phase model (was: 1 + extras + cascade).
+	# v2: heroes only spawn from matched hero bubbles. One hero per hero bubble
+	# in the cleared group, each spawning a unit of its own color (red hero
+	# bubble → Fire Knight, blue → Ice Mage, etc.). Tier still scales with the
+	# overall match size so chaining hero bubbles into bigger matches matters.
 	var tier: String = "bronze"
 	if match_size >= 5: tier = "gold"
 	elif match_size == 4: tier = "silver"
 	var spawn_col: int = _column_for_match(_positions)
-	lane.spawn_hero(color, tier, spawn_col, "match")
-	var spawned: Array = [{"color": color, "tier": tier}]
+	var spawned: Array = []
+	for hero_color in hero_colors:
+		lane.spawn_hero(hero_color, tier, spawn_col, "hero_bubble")
+		RunState.total_heroes_spawned += 1
+		spawned.append({"color": hero_color, "tier": tier})
 	Telemetry.log_match_pop(match_size, color, chain_count, spawned)
 	_pending_descent_relief += GameConfig.cluster_descent_pop_relief_rows
 	# §3.5 color frenzy: full-clear of any color in Phase 1 stamps a persistent
@@ -250,6 +400,7 @@ func _on_match_popped(color: int, match_size: int, chain_count: int, _positions:
 				break
 		if not still_present:
 			_frenzy_buffed_colors[color] = true
+			Vfx.edge_tint_pulse(self, Vfx.color_for_bubble(color), 0.85)
 			Telemetry.log_color_frenzy(color, 0)
 
 func _column_for_match(positions: Array) -> int:
@@ -263,6 +414,10 @@ func _on_bubble_resolved(_was_pop: bool) -> void:
 	var net: int = _pending_descent_rows - _pending_descent_relief
 	_pending_descent_rows = 0
 	_pending_descent_relief = 0
+	# Cluster's active-color set is now post-pop; re-validate the cannon queue so
+	# we don't keep showing colors no longer present in the cluster.
+	if cannon:
+		cannon.refresh_queue_against_cluster()
 	if cluster == null or _phase != Phase.PHASE_1: return
 	if net > 0:
 		cluster.descend_rows(net)
@@ -278,8 +433,47 @@ func _on_enemy_reached_cannon(hp_damage: int) -> void:
 	_enemies_leaked += 1
 	player_hp = max(0, player_hp - hp_damage)
 	hud_hp_bar.value = player_hp
+	_update_base_visuals()
+	_punch_base()
+	Vfx.screen_shake(self, 18.0, 0.32)
 	if player_hp <= 0:
 		_fail_stage("hp")
+
+# Visual response when an enemy reaches the wall: shake the base, flash it
+# white briefly, and let _update_base_visuals handle the persistent damage state.
+func _punch_base() -> void:
+	if base_node == null: return
+	Vfx.hit_flash(base_wall, 0.18)
+	Vfx.screen_shake(base_node, 10.0, 0.28)
+
+# Reflect player_hp on the base: HP bar width, wall tint, crack alpha, smoke alpha.
+func _update_base_visuals() -> void:
+	if base_hp_bar_fill == null: return
+	var max_hp: float = float(GameConfig.stage_start_hp)
+	var frac: float = clamp(float(player_hp) / max_hp, 0.0, 1.0)
+	# HP bar fill width.
+	var full_width: float = BASE_HP_BAR_RIGHT - BASE_HP_BAR_LEFT
+	var sz: Vector2 = base_hp_bar_fill.size
+	sz.x = full_width * frac
+	base_hp_bar_fill.size = sz
+	# HP bar color: green → orange → red as HP drops.
+	if frac > 0.5:
+		base_hp_bar_fill.color = Color(0.30, 0.78, 0.45, 1)
+	elif frac > 0.25:
+		base_hp_bar_fill.color = Color(0.92, 0.66, 0.20, 1)
+	else:
+		base_hp_bar_fill.color = Color(0.88, 0.25, 0.22, 1)
+	# Wall tint — lerp full → hurt as HP drops.
+	if base_wall != null:
+		base_wall.color = BASE_WALL_FULL.lerp(BASE_WALL_HURT, 1.0 - frac)
+	# Crack overlay fades in below 50% HP.
+	if base_crack != null:
+		var crack_alpha: float = 0.0 if frac >= 0.5 else clamp((0.5 - frac) / 0.5, 0.0, 0.65)
+		base_crack.color = Color(0, 0, 0, crack_alpha)
+	# Smoke overlay fades in below 25% HP.
+	if base_smoke != null:
+		var smoke_alpha: float = 0.0 if frac >= 0.25 else clamp((0.25 - frac) / 0.25, 0.0, 0.55)
+		base_smoke.color = Color(0.42, 0.42, 0.45, smoke_alpha)
 
 func _spawn_boss() -> void:
 	# Stage 5 boss: red, centre column (col=4 of 8). Death/leak both clear _boss_alive
@@ -324,15 +518,20 @@ func _clear_stage() -> void:
 	var stage_ms: int = Time.get_ticks_msec() - stage_start_ms
 	Telemetry.log_stage_clear(stage_num, player_hp, stage_ms,
 		_p1_ms, _p2_ms, _total_pops, _bubbles_lost, _max_chain)
+	# Roll per-stage rollup into RunState so RunEnd can display it.
+	RunState.record_stage_clear(stage_num, _total_pops, _bubbles_lost, _max_chain,
+		_enemies_killed, _enemies_leaked)
+	RunState.total_bubbles_fired += _bubbles_fired
+	RunState.total_frenzies += _frenzy_buffed_colors.size()
+	# Snapshot surviving heroes so the next stage can carry them forward.
+	if lane:
+		RunState.run_heroes = lane.snapshot_heroes()
 	_show_banner("STAGE %d CLEAR" % stage_num, 1.5)
-	# Auto-advance to next stage (no boon pick UI yet — that's W3).
-	if stage_num < 5:
-		var next: int = stage_num + 1
-		var tw := create_tween()
-		tw.tween_interval(1.8)
-		tw.tween_callback(func(): start_stage(next, []))
-	else:
-		_show_banner("RUN COMPLETE", 2.5)
+	# Hand off to Main router after a beat (lets banner read).
+	var cleared_stage: int = stage_num
+	var tw := create_tween()
+	tw.tween_interval(1.4)
+	tw.tween_callback(func(): stage_cleared.emit(cleared_stage))
 
 func _fail_stage(reason: String) -> void:
 	if _phase == Phase.STAGE_FAIL: return
@@ -347,7 +546,21 @@ func _fail_stage(reason: String) -> void:
 			player_hp, _enemies_killed, _enemies_leaked, 0)
 	var stage_ms: int = Time.get_ticks_msec() - stage_start_ms
 	Telemetry.log_stage_fail(stage_num, player_hp, reason, stage_ms)
-	_show_banner("STAGE %d FAILED" % stage_num, 2.5)
+	# Stat rollup for RunEnd — same fields a clear would carry.
+	RunState.record_stage_fail(stage_num, reason)
+	RunState.total_pops += _total_pops
+	RunState.total_bubbles_lost += _bubbles_lost
+	RunState.total_bubbles_fired += _bubbles_fired
+	RunState.total_enemies_killed += _enemies_killed
+	RunState.total_enemies_leaked += _enemies_leaked
+	RunState.total_frenzies += _frenzy_buffed_colors.size()
+	RunState.run_max_chain = max(RunState.run_max_chain, _max_chain)
+	_show_banner("STAGE %d FAILED" % stage_num, 2.0)
+	var failed_stage: int = stage_num
+	var failed_reason: String = reason
+	var tw := create_tween()
+	tw.tween_interval(1.8)
+	tw.tween_callback(func(): stage_failed.emit(failed_stage, failed_reason))
 
 # ============================================================
 # §4.2 — apply a boon at stage start
@@ -389,3 +602,136 @@ func _show_banner(text: String, duration_sec: float) -> void:
 	tw.tween_interval(max(0.05, duration_sec - 0.25))
 	tw.tween_property(_phase_banner, "modulate:a", 0.0, 0.25)
 	tw.tween_callback(func(): _phase_banner.visible = false)
+
+# ============================================================
+# Pause overlay (Screen 5)
+# ============================================================
+func _setup_pause_overlay() -> void:
+	_pause_overlay = PAUSE_OVERLAY_SCENE.instantiate()
+	add_child(_pause_overlay)
+	_pause_overlay.resume_pressed.connect(_on_pause_resume)
+	_pause_overlay.quit_run_pressed.connect(_on_pause_quit)
+	# Tap the ⏸ in the top HUD to open. The Label has no built-in click,
+	# so we use a transparent Button overlay.
+	if pause_icon:
+		var btn := Button.new()
+		btn.flat = true
+		btn.modulate = Color(1, 1, 1, 0)
+		btn.size = Vector2(80, 80)
+		btn.position = Vector2(620, 20)
+		btn.pressed.connect(_on_pause_button)
+		$HUDTop.add_child(btn)
+
+func _on_pause_button() -> void:
+	if not _stage_active: return
+	var phase_for_log: int = 1 if _phase == Phase.PHASE_1 else 2
+	var ms_into_stage: int = Time.get_ticks_msec() - stage_start_ms
+	_pause_overlay.open(stage_num, phase_for_log, ms_into_stage)
+
+func _on_pause_resume() -> void:
+	pass  # tree-unpause handled in PauseOverlay; nothing else to do.
+
+func _on_pause_quit() -> void:
+	quit_run_requested.emit(stage_num)
+
+# ============================================================
+# Debug menu (F4) — exposes OQ flags so internal testers can A/B at runtime.
+# Lives over the bottom HUD; ignores mouse when hidden so it doesn't eat aim.
+# ============================================================
+func _setup_debug_panel() -> void:
+	_debug_panel = Panel.new()
+	_debug_panel.name = "DebugPanel"
+	_debug_panel.position = Vector2(20, 140)
+	_debug_panel.size = Vector2(420, 260)
+	_debug_panel.visible = false
+	_debug_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_debug_panel)
+
+	var vb := VBoxContainer.new()
+	vb.position = Vector2(12, 8)
+	vb.custom_minimum_size = Vector2(396, 240)
+	_debug_panel.add_child(vb)
+
+	var title := Label.new()
+	title.text = "DEBUG (F4)  —  stage F2/F3, jump 1-5"
+	title.add_theme_font_size_override("font_size", 16)
+	title.add_theme_color_override("font_color", Color(1, 0.9, 0.5))
+	vb.add_child(title)
+
+	# OQ11 — carry-over heroes toggle
+	_dbg_carry_chk = CheckButton.new()
+	_dbg_carry_chk.text = "Carry-over heroes (OQ11)"
+	_dbg_carry_chk.button_pressed = GameConfig.carry_over_heroes_enabled
+	_dbg_carry_chk.toggled.connect(func(on: bool):
+		GameConfig.carry_over_heroes_enabled = on
+		_refresh_debug_status())
+	vb.add_child(_dbg_carry_chk)
+
+	# OQ10 — early-clear bonus secs/hero (0 = off)
+	_dbg_early_clear_spin = _make_labeled_spin(vb,
+		"P1 early-clear bonus: 1 hero per N sec (OQ10, 0=off)",
+		0, 60, 1, GameConfig.phase1_early_clear_secs_per_bonus_hero,
+		func(v: float):
+			GameConfig.phase1_early_clear_secs_per_bonus_hero = int(v)
+			_refresh_debug_status())
+
+	# OQ1 — phase transition duration
+	_dbg_transition_spin = _make_labeled_spin(vb,
+		"GET READY! wipe (sec)  (OQ1)",
+		0.0, 3.0, 0.1, GameConfig.phase_transition_sec,
+		func(v: float):
+			GameConfig.phase_transition_sec = v
+			_refresh_debug_status())
+
+	# OQ2 — aim ricochet count
+	_dbg_ricochet_spin = _make_labeled_spin(vb,
+		"Aim ricochets  (OQ2)",
+		0, 3, 1, GameConfig.aim_ricochet_count,
+		func(v: float):
+			GameConfig.aim_ricochet_count = int(v)
+			if cannon: cannon.ricochet_count = int(v)
+			_refresh_debug_status())
+
+	_dbg_status_label = Label.new()
+	_dbg_status_label.add_theme_font_size_override("font_size", 13)
+	_dbg_status_label.add_theme_color_override("font_color", Color(0.75, 0.85, 1))
+	vb.add_child(_dbg_status_label)
+	_refresh_debug_status()
+
+# Builds: Label + SpinBox row inside `parent`. Returns the SpinBox.
+func _make_labeled_spin(parent: Node, label_text: String,
+		min_v: float, max_v: float, step: float, init_v: float,
+		on_change: Callable) -> SpinBox:
+	var lbl := Label.new()
+	lbl.text = label_text
+	lbl.add_theme_font_size_override("font_size", 13)
+	parent.add_child(lbl)
+	var spin := SpinBox.new()
+	spin.min_value = min_v
+	spin.max_value = max_v
+	spin.step = step
+	spin.value = init_v
+	spin.custom_minimum_size = Vector2(120, 28)
+	spin.value_changed.connect(on_change)
+	parent.add_child(spin)
+	return spin
+
+func _toggle_debug_panel() -> void:
+	if _debug_panel == null: return
+	_debug_panel.visible = not _debug_panel.visible
+	if _debug_panel.visible:
+		_refresh_debug_status()
+
+func _refresh_debug_status() -> void:
+	if _dbg_status_label == null: return
+	_dbg_status_label.text = "stage %d  •  hp %d  •  phase %s  •  heroes carried: %d" % [
+		stage_num, player_hp, _phase_name(), RunState.run_heroes.size()]
+
+func _phase_name() -> String:
+	match _phase:
+		Phase.PHASE_1:     return "P1"
+		Phase.TRANSITION:  return "TR"
+		Phase.PHASE_2:     return "P2"
+		Phase.STAGE_CLEAR: return "CLR"
+		Phase.STAGE_FAIL:  return "FAIL"
+		_:                 return "?"

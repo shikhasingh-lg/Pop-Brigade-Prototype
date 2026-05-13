@@ -7,7 +7,7 @@ extends Node2D
 
 signal cluster_grew(new_height: int)
 signal cluster_descended(rows_now: int)
-signal match_popped(color: int, match_size: int, chain_count: int, positions: Array)
+signal match_popped(color: int, match_size: int, chain_count: int, positions: Array, hero_colors: Array)
 # Bubble vanished past the spawn line (V8: lost opportunity only, no enemy spawn).
 # Source = "descent" (cluster bubble crossed during descent) or "below_line_fire"
 # (fired bubble's chosen cell was below the line). Used for telemetry + fade VFX.
@@ -64,6 +64,7 @@ func setup_for_stage(stage_num: int) -> void:
 			b.grid_col = col
 			row_data.append(b)
 		grid.append(row_data)
+	_seed_hero_bubbles(GameConfig.get_hero_bubble_count(stage_num))
 	position.y = _initial_y
 	_consecutive_misses = 0
 	_stage_over = false
@@ -82,6 +83,24 @@ func _clear_visual_grid() -> void:
 func _pick_random_color() -> int:
 	var colors := GameConfig.all_bubble_colors()
 	return colors[randi() % colors.size()]
+
+# Flip N random eligible cells in the freshly-built grid to hero bubbles.
+# Eligible = not a color bomb and not already a hero bubble. Caps at the
+# available eligible cell count.
+func _seed_hero_bubbles(count: int) -> void:
+	if count <= 0: return
+	var candidates: Array = []
+	for r in range(grid.size()):
+		var row_data: Array = grid[r]
+		for c in range(row_data.size()):
+			var b: Bubble = row_data[c]
+			if b == null or b.is_special_color_bomb or b.is_hero_bubble:
+				continue
+			candidates.append(b)
+	candidates.shuffle()
+	var n: int = min(count, candidates.size())
+	for i in range(n):
+		(candidates[i] as Bubble).set_hero_bubble(true)
 
 func _cell_to_local_pos(row: int, col: int) -> Vector2:
 	var is_offset := row % 2 == 1
@@ -289,9 +308,16 @@ func _find_match(row: int, col: int, target_color: int) -> Array:
 func _pop_match(color: int, positions: Array) -> void:
 	# §3.4: hero-tier mapping is handled in MatchScene._on_match_popped.
 	# Here: free the bubbles, run cascade, emit match_popped.
+	# Heroes only spawn from hero bubbles, so collect their colors before freeing.
+	var burst_color: Color = Vfx.color_for_bubble(color)
+	var burst_parent: Node = get_parent()  # ClusterZone — keeps the burst above the zone bg
+	var hero_colors: Array = []
 	for p in positions:
 		var b: Bubble = grid[p.x][p.y]
 		if b != null:
+			if b.is_hero_bubble:
+				hero_colors.append(b.color)
+			Vfx.pop_burst(burst_parent, b.global_position, burst_color)
 			b.queue_free()
 			grid[p.x][p.y] = null
 	var cascade_colors := _process_falling()
@@ -299,7 +325,7 @@ func _pop_match(color: int, positions: Array) -> void:
 	var positions_arr: Array = []
 	for p in positions:
 		positions_arr.append(Vector2(p.y, p.x))  # (col, row) — MatchScene uses centroid.x for column
-	emit_signal("match_popped", color, positions.size(), cascade_colors.size(), positions_arr)
+	emit_signal("match_popped", color, positions.size(), cascade_colors.size(), positions_arr, hero_colors)
 	pause_descent(GameConfig.cluster_descent_pause_after_pop_sec)
 
 # §3.2: any bubble disconnected from the top row falls.
@@ -358,6 +384,8 @@ func _grow_top_row() -> void:
 	for c in range(new_row_cols):
 		var b: Bubble = bubble_scene.instantiate()
 		b.color = _pick_random_color()
+		if randf() < GameConfig.hero_bubble_grow_chance:
+			b.is_hero_bubble = true
 		b.position = _cell_to_local_pos(0, c)
 		add_child(b)
 		b.grid_row = 0

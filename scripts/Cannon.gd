@@ -8,7 +8,12 @@ extends Node2D
 
 signal bubble_fired(bubble: Bubble, aim_angle_deg: float, time_to_fire_ms: int)
 
-@export var aim_line: Line2D  # set in editor; created at runtime if null
+# Dotted-trajectory overlay (replaces the old solid Line2D). Drawn in
+# world space by AimOverlay; created at runtime and parented to MatchScene root.
+# Preloaded by path (not via class_name) so first-run before the editor has
+# scanned the class registry still works.
+const AIM_OVERLAY_SCRIPT := preload("res://scripts/AimOverlay.gd")
+var aim_overlay: Node2D = null
 @export var cluster_path: NodePath
 
 var current_color: int = 0  # GameConfig.BubbleColor.RED
@@ -56,10 +61,15 @@ var _current_aim_angle_deg: float = -90.0
 var _aim_swap_candidate: bool = false  # press started inside the on-deck rect
 # V8 §3.10: cannon disabled in Phase 2 (input ignored, dimmed).
 var _input_enabled: bool = true
+# Transient block while another input modal is active (e.g. hero drag in v2 §3.2).
+# Suppresses aim input WITHOUT dimming the cannon — kept separate from the
+# phase-level disable so brief drags don't flash the cannon dim/undim.
+var _aim_blocked: bool = false
 
-# Queue HUD ColorRects (set up in MatchScene.tscn — current is child of Cannon, on-deck is sibling).
-@onready var _current_sprite: ColorRect = get_node_or_null("CurrentBubble")
-@onready var _on_deck_sprite: ColorRect = get_node_or_null("../OnDeckBubble")
+# Queue HUD bubble visuals (BubbleVisual.gd on a Node2D — circle preview).
+# Current is a child of Cannon; on-deck is a sibling in HUDBottom.
+@onready var _current_sprite: Node = get_node_or_null("CurrentBubble")
+@onready var _on_deck_sprite: Node = get_node_or_null("../OnDeckBubble")
 
 var _cluster_ref: Cluster = null
 
@@ -72,24 +82,33 @@ func _ready() -> void:
 	on_deck_color = color_palette[randi() % color_palette.size()]
 	_refresh_queue_visuals()
 	call_deferred("_resolve_cluster")
-	_ensure_aim_line()
+	_ensure_aim_overlay()
 	queue_redraw()  # paint the idle aim ring
 
-func _ensure_aim_line() -> void:
-	if aim_line != null:
-		aim_line.visible = false
+func _ensure_aim_overlay() -> void:
+	if aim_overlay != null:
+		aim_overlay.visible = false
 		return
-	aim_line = Line2D.new()
-	aim_line.name = "AimLine"
-	aim_line.width = 4.0
-	aim_line.default_color = Color(1, 1, 1, 0.55)
-	aim_line.visible = false
-	call_deferred("_attach_aim_line")
+	aim_overlay = Node2D.new()
+	aim_overlay.set_script(AIM_OVERLAY_SCRIPT)
+	aim_overlay.name = "AimOverlay"
+	aim_overlay.visible = false
+	aim_overlay.z_index = 25
+	call_deferred("_attach_aim_overlay")
 
-func _attach_aim_line() -> void:
-	var scene := get_tree().current_scene
-	if scene != null and aim_line.get_parent() == null:
-		scene.add_child(aim_line)
+func _attach_aim_overlay() -> void:
+	var root := _match_root()
+	if root != null and aim_overlay.get_parent() == null:
+		root.add_child(aim_overlay)
+
+# Resolve the MatchScene root (cannon → HUDBottom → MatchScene). Used as the
+# parent for the aim line and in-flight bubbles so they render above the match
+# background. Falls back to current_scene if the cannon was reparented.
+func _match_root() -> Node:
+	var p := get_parent()
+	if p != null and p.get_parent() != null:
+		return p.get_parent()
+	return get_tree().current_scene
 
 func _resolve_cluster() -> void:
 	if cluster_path != NodePath(""):
@@ -115,13 +134,24 @@ func set_input_enabled(enabled: bool) -> void:
 	if not enabled and _aiming:
 		_aiming = false
 		_aim_swap_candidate = false
-		if aim_line != null:
-			aim_line.visible = false
-			aim_line.points = PackedVector2Array()
+		_hide_aim_overlay()
 	queue_redraw()
 
+func set_aim_blocked(blocked: bool) -> void:
+	_aim_blocked = blocked
+	if blocked and _aiming:
+		_aiming = false
+		_aim_swap_candidate = false
+		_hide_aim_overlay()
+		queue_redraw()
+
+func _hide_aim_overlay() -> void:
+	if aim_overlay != null:
+		aim_overlay.visible = false
+		aim_overlay.clear()
+
 func _input(event: InputEvent) -> void:
-	if not _input_enabled: return
+	if not _input_enabled or _aim_blocked: return
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event
 		if mb.button_index != MOUSE_BUTTON_LEFT: return
@@ -152,8 +182,7 @@ func _update_aim(touch_pos: Vector2) -> void:
 	# §3.3: only upward aims valid. Dead zone prevents finger-jitter near the
 	# cannon from snapping the angle wildly. The previous aim angle is kept.
 	if to_touch.y >= -8.0 or to_touch.length() < AIM_DEAD_ZONE_PX:
-		if aim_line != null:
-			aim_line.visible = false
+		_hide_aim_overlay()
 		queue_redraw()
 		return
 	# Smooth toward raw target angle so each finger event nudges aim instead
@@ -163,9 +192,9 @@ func _update_aim(touch_pos: Vector2) -> void:
 	var smoothed_rad := lerp_angle(current_rad, target_rad, AIM_SMOOTH_ALPHA)
 	_current_aim_angle_deg = rad_to_deg(smoothed_rad)
 	queue_redraw()
-	if aim_line == null: return
-	aim_line.visible = true
-	aim_line.points = _compute_aim_polyline(_current_aim_angle_deg, ricochet_count)
+	if aim_overlay == null: return
+	aim_overlay.visible = true
+	aim_overlay.set_polyline(_compute_aim_polyline(_current_aim_angle_deg, ricochet_count), current_color)
 
 func _release_aim(touch_pos: Vector2) -> void:
 	if _aim_swap_candidate:
@@ -176,9 +205,7 @@ func _release_aim(touch_pos: Vector2) -> void:
 		return
 	if not _aiming: return
 	_aiming = false
-	if aim_line != null:
-		aim_line.visible = false
-		aim_line.points = PackedVector2Array()
+	_hide_aim_overlay()
 	var origin := global_position
 	var to_release := touch_pos - origin
 	# Cancel if released below cannon OR inside dead zone (treated as accidental tap).
@@ -249,7 +276,7 @@ func try_fire(aim_angle_deg: float, queue_swap_used: bool, stage_num: int) -> vo
 	var b: Bubble = _cluster_ref.bubble_scene.instantiate()
 	b.color = current_color
 	b.is_special_color_bomb = _is_color_bomb()
-	get_tree().current_scene.add_child(b)
+	_match_root().add_child(b)
 	var vel := Vector2.from_angle(deg_to_rad(aim_angle_deg)) * GameConfig.bubble_speed_px_per_sec
 	b.launch(global_position, vel, _cluster_ref)
 	Telemetry.log_bubble_fired(stage_num, current_color, queue_swap_used,
@@ -261,16 +288,30 @@ func try_fire(aim_angle_deg: float, queue_swap_used: bool, stage_num: int) -> vo
 func _advance_queue() -> void:
 	current_color = on_deck_color
 	on_deck_color = _draw_from_palette()
-	# §3.3: if the just-promoted current was the last of its color (popped by this shot),
-	# re-roll it against the now-current palette.
-	if _cluster_ref != null:
-		var active: Array = _cluster_ref.get_active_colors()
-		if not active.is_empty():
-			if not (current_color in active):
-				current_color = active[randi() % active.size()]
-			if not (on_deck_color in active):
-				on_deck_color = active[randi() % active.size()]
 	_refresh_queue_visuals()
+
+# Called by MatchScene after Cluster.bubble_resolved — the in-flight shot has
+# now attached/popped, so the cluster's active-color set reflects post-shot
+# state. Re-roll queue slots that point at colors no longer present, otherwise
+# the player gets shots that can never match anything in the cluster.
+func refresh_queue_against_cluster() -> void:
+	if _cluster_ref == null:
+		_resolve_cluster()
+		if _cluster_ref == null:
+			return
+	var active: Array = _cluster_ref.get_active_colors()
+	if active.is_empty():
+		return
+	color_palette = active
+	var changed := false
+	if not (current_color in active):
+		current_color = active[randi() % active.size()]
+		changed = true
+	if not (on_deck_color in active):
+		on_deck_color = active[randi() % active.size()]
+		changed = true
+	if changed:
+		_refresh_queue_visuals()
 
 func swap_queue() -> void:
 	var tmp := current_color
@@ -312,9 +353,9 @@ func _is_color_bomb() -> bool:
 
 func _refresh_queue_visuals() -> void:
 	if _current_sprite != null:
-		_current_sprite.color = _color_for_enum(current_color)
+		_current_sprite.set_bubble_color(current_color)
 	if _on_deck_sprite != null:
-		_on_deck_sprite.color = _color_for_enum(on_deck_color)
+		_on_deck_sprite.set_bubble_color(on_deck_color)
 
 func _color_for_enum(c: int) -> Color:
 	if GameConfig.COLOR_HEX.has(c):

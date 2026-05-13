@@ -1,0 +1,176 @@
+[gd_scene load_steps=4 format=3 uid="uid://b1testheroes"]
+
+[ext_resource type="Script" path="res://scripts/TestHeroCards.gd" id="0_test"]
+[ext_resource type="PackedScene" path="res://scenes/HeroCard.tscn" id="1_hero"]
+[ext_resource type="PackedScene" path="res://scenes/EnemyCard.tscn" id="2_enemy"]
+
+[node name="TestHeroCards" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("0_test")
+
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.12, 0.14, 0.18, 1)
+
+[node name="HeroTitle" type="Label" parent="."]
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 20.0
+offset_bottom = 44.0
+grow_horizontal = 2
+text = "HEROES"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HeroRow" type="HBoxContainer" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.18
+anchor_right = 0.5
+anchor_bottom = 0.18
+offset_left = -440.0
+offset_top = -90.0
+offset_right = 440.0
+offset_bottom = 90.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="FireKnight" parent="HeroRow" instance=ExtResource("1_hero")]
+layout_mode = 2
+
+[node name="IceMage" parent="HeroRow" instance=ExtResource("1_hero")]
+layout_mode = 2
+hero_slug = "ice-mage"
+
+[node name="Archer" parent="HeroRow" instance=ExtResource("1_hero")]
+layout_mode = 2
+hero_slug = "archer"
+
+[node name="Druid" parent="HeroRow" instance=ExtResource("1_hero")]
+layout_mode = 2
+hero_slug = "druid"
+
+[node name="Wizard" parent="HeroRow" instance=ExtResource("1_hero")]
+layout_mode = 2
+hero_slug = "wizard"
+
+[node name="BubbleTitle" type="Label" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.42
+anchor_right = 0.5
+anchor_bottom = 0.42
+offset_left = -200.0
+offset_top = -16.0
+offset_right = 200.0
+offset_bottom = 16.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "BUBBLES"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="BubbleRow" type="HBoxContainer" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.54
+anchor_right = 0.5
+anchor_bottom = 0.54
+offset_left = -360.0
+offset_top = -60.0
+offset_right = 360.0
+offset_bottom = 60.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 24
+alignment = 1
+
+[node name="Red" type="TextureRect" parent="BubbleRow"]
+custom_minimum_size = Vector2(120, 120)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Blue" type="TextureRect" parent="BubbleRow"]
+custom_minimum_size = Vector2(120, 120)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Yellow" type="TextureRect" parent="BubbleRow"]
+custom_minimum_size = Vector2(120, 120)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Green" type="TextureRect" parent="BubbleRow"]
+custom_minimum_size = Vector2(120, 120)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Purple" type="TextureRect" parent="BubbleRow"]
+custom_minimum_size = Vector2(120, 120)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="EnemyTitle" type="Label" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.72
+anchor_right = 0.5
+anchor_bottom = 0.72
+offset_left = -200.0
+offset_top = -16.0
+offset_right = 200.0
+offset_bottom = 16.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "ENEMIES"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="EnemyRow" type="HBoxContainer" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.85
+anchor_right = 0.5
+anchor_bottom = 0.85
+offset_left = -440.0
+offset_top = -90.0
+offset_right = 440.0
+offset_bottom = 90.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="RedGoblin" parent="EnemyRow" instance=ExtResource("2_enemy")]
+layout_mode = 2
+
+[node name="BlueSlime" parent="EnemyRow" instance=ExtResource("2_enemy")]
+layout_mode = 2
+enemy_slug = "blue-slime"
+
+[node name="YellowBrute" parent="EnemyRow" instance=ExtResource("2_enemy")]
+layout_mode = 2
+enemy_slug = "yellow-brute"
+
+[node name="GreenSpore" parent="EnemyRow" instance=ExtResource("2_enemy")]
+layout_mode = 2
+enemy_slug = "green-spore"
+
+[node name="GoopKing" parent="EnemyRow" instance=ExtResource("2_enemy")]
+layout_mode = 2
+enemy_slug = "goop-king"

@@ -72,15 +72,29 @@ const COLOR_HEX := {
 @export var gold_dmg:  int = 30
 
 # Class behavior — color → class mapping is locked.
+# See combat-design.md §2 for per-class targeting zones + VFX.
 @export_group("Heroes — Class Behavior")
-@export var red_range_cells:    int = 3
-@export var red_fire_rate_sec:  float = 1.0
-@export var blue_range_cells:   int = 5
-@export var blue_fire_rate_sec: float = 1.5
-@export var blue_slow_pct:      float = 0.30    # 30% slow
+# Fire Knight (RED) — close-range cone
+@export var red_cone_rows: int = 4              # rows -4..0 in front of hero
+@export var red_cone_cols: int = 1              # ±1 col around hero
+@export var red_fire_rate_sec: float = 0.75
+@export var red_dmg_mult: float = 1.0
+@export var red_cleave_chance: float = 0.25
+@export var red_cleave_targets: int = 2
+# Ice Mage (BLUE) — column lob with AoE splash
+@export var blue_col_radius: int = 1            # ±1 col primary target zone
+@export var blue_reach_rows: int = 10           # rows -10..0
+@export var blue_fire_rate_sec: float = 1.6
+@export var blue_dmg_mult: float = 0.7
+@export var blue_aoe_radius_cells: float = 1.5
+@export var blue_slow_pct: float = 0.30         # 30% slow
 @export var blue_slow_duration_sec: float = 2.0
-@export var yellow_range_cells: int = 6         # full lane
-@export var yellow_fire_rate_sec: float = 2.0
+# Archer (YELLOW) — full-column snipe
+@export var yellow_reach_rows: int = 15         # rows -15..0 (full screen)
+@export var yellow_fire_rate_sec: float = 1.2
+@export var yellow_dmg_mult: float = 1.4
+@export var yellow_execute_threshold: float = 0.30
+@export var yellow_execute_bonus: float = 0.50
 
 @export_group("Heroes — Color Rules")
 @export var color_counter_multiplier: float = 2.0  # same-color hero vs enemy = 2× dmg
@@ -100,13 +114,27 @@ const COLOR_HEX := {
 @export var red_enemy_damage_on_reach:    int = 10
 @export var blue_enemy_damage_on_reach:   int = 10
 @export var yellow_enemy_damage_on_reach: int = 15
+# Variants (combat-design.md §3.2). "walker" = baseline.
+@export var runner_hp_mult: float = 0.7
+@export var runner_speed_mult: float = 0.6      # smaller sec/cell = faster
+@export var brute_hp_mult: float = 2.0
+@export var brute_speed_mult: float = 1.3       # bigger sec/cell = slower
+@export var brute_dmg_mult: float = 1.5
+# Per-stage scalars applied on top of color + variant (combat-design.md §3.3).
+@export var stage_hp_mults: Array[float]  = [1.0, 1.1, 1.2, 1.35, 1.5]
+@export var stage_dmg_mults: Array[float] = [1.0, 1.0, 1.05, 1.1, 1.2]
 
 # ============================================================
-# §3.7 — Special bubbles (v1: color bomb only)
+# §3.7 — Special bubbles (v1: color bomb + hero bubbles)
 # ============================================================
 @export_group("Specials")
 @export var color_bomb_cadence_shots_min: int = 12
 @export var color_bomb_cadence_shots_max: int = 18
+# Hero bubbles: matching one spawns a hero of its color. Regular matches no
+# longer spawn heroes — only hero bubbles do. Count grows ~2-3 per stage so
+# later stages can field a bigger army.
+@export var hero_bubbles_per_stage: Array[int] = [3, 5, 8, 10, 13]
+@export var hero_bubble_grow_chance: float = 0.0   # per bubble via _grow_top_row (off by default)
 
 # ============================================================
 # §3.8 — Player & stage
@@ -127,6 +155,16 @@ const COLOR_HEX := {
 @export_group("Phase Pacing")
 @export var wave_spawn_interval_sec: float = 1.5
 @export var phase_transition_sec: float = 1.0   # GET READY wipe duration
+
+# OQ11 (§7.1) — hero carry-over toggle. true: surviving heroes carry forward
+# with HP+cell preserved (default). false: each stage starts with an empty lane.
+@export var carry_over_heroes_enabled: bool = true
+
+# OQ10 (§7.1) — Phase 1 early-clear bonus. When > 0, clearing the cluster
+# before the cap awards 1 Bronze hero per N seconds of cap remaining.
+# 0 = no bonus (speed clearing is its own reward).
+@export var phase1_early_clear_secs_per_bonus_hero: int = 0
+
 @export var phase1_cap_s1: float = 45.0
 @export var phase1_cap_s2: float = 50.0
 @export var phase1_cap_s3: float = 60.0
@@ -166,6 +204,10 @@ func get_stage_start_rows(stage_num: int) -> int:
 	if stage_num <= 4: return cluster_start_rows_s3_s4
 	return cluster_start_rows_s5
 
+func get_hero_bubble_count(stage_num: int) -> int:
+	var idx: int = clamp(stage_num - 1, 0, hero_bubbles_per_stage.size() - 1)
+	return hero_bubbles_per_stage[idx]
+
 func get_stage_descent_rows_per_shot(stage_num: int) -> int:
 	if stage_num <= 2: return cluster_descent_rows_per_shot_s1_s2
 	if stage_num <= 4: return cluster_descent_rows_per_shot_s3_s4
@@ -186,18 +228,60 @@ func get_color_bomb_next_cadence() -> int:
 func all_bubble_colors() -> Array:
 	return [BubbleColor.RED, BubbleColor.BLUE, BubbleColor.YELLOW]
 
-# §4.3 — Wave composition lookup. Boss in Stage 5 is appended by MatchScene.
+# §4.3 — Wave composition lookup. Returns Array of Dictionary entries:
+#   { "color": BubbleColor, "variant": "walker" | "runner" | "brute" }
+# Boss in Stage 5 is appended by MatchScene (not in this list).
+# Variant mix per stage from combat-design.md §3.3.
 func get_wave_composition(stage_num: int) -> Array:
 	var R: int = BubbleColor.RED
 	var B: int = BubbleColor.BLUE
 	var Y: int = BubbleColor.YELLOW
+	var W := "walker"
+	var RUN := "runner"
+	var BR := "brute"
 	match stage_num:
-		1: return [R, R, R, R, R]                                  # 5 Red
-		2: return [R, R, R, R, B, B]                               # 4R + 2B
-		3: return [R, R, R, R, B, B, B, Y, Y]                      # 4R + 3B + 2Y
-		4: return [R, R, R, R, R, B, B, B, Y, Y, Y]                # 5R + 3B + 3Y
-		5: return [R, R, R, R, R, R, B, B, B, B, Y, Y, Y, Y]       # 6R + 4B + 4Y (+ boss)
-		_: return [R, R, R, R, R]
+		1:
+			return [
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": R, "variant": W},
+			]
+		2:
+			return [
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": B, "variant": W}, {"color": B, "variant": W},
+			]
+		3:
+			return [
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": B, "variant": W}, {"color": B, "variant": W},
+				{"color": B, "variant": W},
+				{"color": Y, "variant": W}, {"color": Y, "variant": RUN},
+			]
+		4:
+			return [
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": R, "variant": RUN},
+				{"color": B, "variant": W}, {"color": B, "variant": W},
+				{"color": B, "variant": W},
+				{"color": Y, "variant": W}, {"color": Y, "variant": W},
+				{"color": Y, "variant": BR},
+			]
+		5:
+			return [
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": R, "variant": W}, {"color": R, "variant": W},
+				{"color": R, "variant": RUN}, {"color": R, "variant": RUN},
+				{"color": B, "variant": W}, {"color": B, "variant": W},
+				{"color": B, "variant": W}, {"color": B, "variant": W},
+				{"color": Y, "variant": W}, {"color": Y, "variant": W},
+				{"color": Y, "variant": BR}, {"color": Y, "variant": BR},
+			]
+		_:
+			return [{"color": R, "variant": W}]
 
 func get_phase1_cap_sec(stage_num: int) -> float:
 	match stage_num:

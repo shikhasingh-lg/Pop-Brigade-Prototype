@@ -93,10 +93,11 @@ godot-prototype/
 - [ ] **W2 gate:** Full stage playable on stages 1–3 (P1 build → P2 defend). Debug HUD shows phase + cluster size + wave queue. _Code-complete; needs manual playtest._
 
 ### Week 3 — Stages 4–5, screens, telemetry
-- [ ] Stage 4 (color bomb appears) + Stage 5 (boss)
-- [ ] Implement 7 remaining screens (MetaHub, Loadout, Pause, StageClear, StageFail, RunEnd) — see UI flow doc
-- [ ] Wire all `Telemetry.log_*()` call sites (every TODO `Telemetry.log_*` in scripts)
-- [ ] **W3 gate:** All 8 screens connected, full run playable, telemetry firing to `.jsonl`
+- [x] Stage 4 (color bomb appears) + Stage 5 (boss) — both wired (Cluster places a color bomb on stage ≥4; MatchScene appends boss after walker wave on Stage 5)
+- [x] Implement 6 remaining screens — `MetaHub`, `Loadout`, `Pause` (overlay), `StageClear` (boon pick), `StageFail`, `RunEnd`. `Main.gd` is now a screen router; `MatchScene` emits `stage_cleared` / `stage_failed` / `quit_run_requested` for the router to drive transitions.
+- [x] Wire remaining `Telemetry.log_*()` call sites — `log_loadout_pick`, `log_boon_picked`, `log_pause_open`, `log_pause_resume`, `log_run_end` now fire from their screens.
+- [x] Per-run state lives in new `RunState` autoload (`scripts/RunState.gd`): cannon bias, picked boons, rollup stats for RunEnd, `runs_completed` persisted to `user://run_save.json`.
+- [ ] **W3 gate:** All 8 screens connected, full run playable, telemetry firing to `.jsonl`. _Code-complete; needs manual end-to-end playtest._
 
 ## How telemetry works
 

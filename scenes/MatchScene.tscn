@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://scenes/Bubble.tscn" id="5_bubble"]
 [ext_resource type="PackedScene" path="res://scenes/Hero.tscn" id="6_hero"]
 [ext_resource type="PackedScene" path="res://scenes/Enemy.tscn" id="7_enemy"]
+[ext_resource type="Script" path="res://scripts/BubbleVisual.gd" id="8_bubblevis"]
 
 [node name="MatchScene" type="Node2D"]
 script = ExtResource("1_match")
@@ -73,36 +74,221 @@ script = ExtResource("2_cluster")
 bubble_scene = ExtResource("5_bubble")
 spawn_line_y = 870.0
 
-; ===== SPAWN LINE (at y=1020, cluster→lane boundary; matches Cluster.spawn_line_y=870 in local space) =====
+; ===== SPAWN LINE / PARAPET (battle line where heroes stand) =====
+; Beefed up from a single 6px red bar: dark stone band underneath
+; (the "wall top") + red trim line on top (the battle marker).
+[node name="ParapetBase" type="ColorRect" parent="."]
+offset_left = 0.0
+offset_top = 1014.0
+offset_right = 720.0
+offset_bottom = 1030.0
+color = Color(0.196, 0.165, 0.137, 1)
+
+[node name="ParapetHighlight" type="ColorRect" parent="."]
+offset_left = 0.0
+offset_top = 1014.0
+offset_right = 720.0
+offset_bottom = 1017.0
+color = Color(0.31, 0.27, 0.22, 1)
+
 [node name="SpawnLine" type="ColorRect" parent="."]
 offset_left = 0.0
-offset_top = 1017.0
+offset_top = 1011.0
 offset_right = 720.0
-offset_bottom = 1023.0
+offset_bottom = 1015.0
 color = Color(1, 0.42, 0.42, 1)
 
 [node name="SpawnLineLabel" type="Label" parent="."]
 offset_left = 600.0
-offset_top = 995.0
+offset_top = 990.0
 offset_right = 710.0
-offset_bottom = 1015.0
+offset_bottom = 1010.0
 theme_override_colors/font_color = Color(1, 0.42, 0.42, 1)
 theme_override_font_sizes/font_size = 18
-text = "spawn line"
+text = "battle line"
 
 ; ===== LANE ZONE (1020..1390) =====
 [node name="LaneZone" type="Node2D" parent="."]
 position = Vector2(0, 1020)
 
+; Outer (off-road) shoulder — darker than before.
 [node name="ZoneBg" type="ColorRect" parent="LaneZone"]
 offset_right = 720.0
 offset_bottom = 370.0
-color = Color(0.082, 0.082, 0.106, 1)
+color = Color(0.055, 0.055, 0.075, 1)
+
+; Road strip the enemies march on (full lane width, lighter than shoulder).
+[node name="Road" type="ColorRect" parent="LaneZone"]
+offset_left = 8.0
+offset_top = 4.0
+offset_right = 712.0
+offset_bottom = 366.0
+color = Color(0.118, 0.118, 0.145, 1)
+
+; Column dividers — 7 thin vertical strips at x=90..630, alpha-low so they
+; suggest the 8-column grid without competing with heroes/enemies.
+[node name="Col1" type="ColorRect" parent="LaneZone"]
+offset_left = 89.0
+offset_top = 4.0
+offset_right = 91.0
+offset_bottom = 366.0
+color = Color(1, 1, 1, 0.04)
+
+[node name="Col2" type="ColorRect" parent="LaneZone"]
+offset_left = 179.0
+offset_top = 4.0
+offset_right = 181.0
+offset_bottom = 366.0
+color = Color(1, 1, 1, 0.04)
+
+[node name="Col3" type="ColorRect" parent="LaneZone"]
+offset_left = 269.0
+offset_top = 4.0
+offset_right = 271.0
+offset_bottom = 366.0
+color = Color(1, 1, 1, 0.04)
+
+[node name="Col4" type="ColorRect" parent="LaneZone"]
+offset_left = 359.0
+offset_top = 4.0
+offset_right = 361.0
+offset_bottom = 366.0
+color = Color(1, 1, 1, 0.06)
+
+[node name="Col5" type="ColorRect" parent="LaneZone"]
+offset_left = 449.0
+offset_top = 4.0
+offset_right = 451.0
+offset_bottom = 366.0
+color = Color(1, 1, 1, 0.04)
+
+[node name="Col6" type="ColorRect" parent="LaneZone"]
+offset_left = 539.0
+offset_top = 4.0
+offset_right = 541.0
+offset_bottom = 366.0
+color = Color(1, 1, 1, 0.04)
+
+[node name="Col7" type="ColorRect" parent="LaneZone"]
+offset_left = 629.0
+offset_top = 4.0
+offset_right = 631.0
+offset_bottom = 366.0
+color = Color(1, 1, 1, 0.04)
 
 [node name="Lane" type="Node2D" parent="LaneZone"]
 script = ExtResource("3_lane")
 hero_scene = ExtResource("6_hero")
 enemy_scene = ExtResource("7_enemy")
+
+; ===== BASE / DEFENDED OBJECT (1310..1390, overlays the lane's last ~1.3 rows
+; so enemies visually walk INTO the wall instead of vanishing at a hidden line) =====
+[node name="Base" type="Node2D" parent="."]
+position = Vector2(0, 1310)
+
+; Stone wall body — color is mutated by MatchScene._update_base_visuals() to
+; tint orange→red as HP drops.
+[node name="Wall" type="ColorRect" parent="Base"]
+offset_left = 0.0
+offset_top = 6.0
+offset_right = 720.0
+offset_bottom = 80.0
+color = Color(0.275, 0.212, 0.157, 1)
+
+; Battlement strip — lighter band on top reads as "wall edge."
+[node name="WallTop" type="ColorRect" parent="Base"]
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 720.0
+offset_bottom = 8.0
+color = Color(0.40, 0.31, 0.22, 1)
+
+; Crenellation notches — six dark gaps along the top so the silhouette reads
+; as a fortification, not a flat bar.
+[node name="Notch0" type="ColorRect" parent="Base"]
+offset_left = 40.0
+offset_top = 0.0
+offset_right = 90.0
+offset_bottom = 8.0
+color = Color(0.055, 0.055, 0.075, 1)
+
+[node name="Notch1" type="ColorRect" parent="Base"]
+offset_left = 150.0
+offset_top = 0.0
+offset_right = 200.0
+offset_bottom = 8.0
+color = Color(0.055, 0.055, 0.075, 1)
+
+[node name="Notch2" type="ColorRect" parent="Base"]
+offset_left = 260.0
+offset_top = 0.0
+offset_right = 310.0
+offset_bottom = 8.0
+color = Color(0.055, 0.055, 0.075, 1)
+
+[node name="Notch3" type="ColorRect" parent="Base"]
+offset_left = 410.0
+offset_top = 0.0
+offset_right = 460.0
+offset_bottom = 8.0
+color = Color(0.055, 0.055, 0.075, 1)
+
+[node name="Notch4" type="ColorRect" parent="Base"]
+offset_left = 520.0
+offset_top = 0.0
+offset_right = 570.0
+offset_bottom = 8.0
+color = Color(0.055, 0.055, 0.075, 1)
+
+[node name="Notch5" type="ColorRect" parent="Base"]
+offset_left = 630.0
+offset_top = 0.0
+offset_right = 680.0
+offset_bottom = 8.0
+color = Color(0.055, 0.055, 0.075, 1)
+
+; HP bar across the base — visible damage marker right where the damage lands.
+[node name="HPBarBg" type="ColorRect" parent="Base"]
+offset_left = 40.0
+offset_top = 16.0
+offset_right = 680.0
+offset_bottom = 36.0
+color = Color(0, 0, 0, 0.55)
+
+[node name="HPBarFill" type="ColorRect" parent="Base"]
+offset_left = 42.0
+offset_top = 18.0
+offset_right = 678.0
+offset_bottom = 34.0
+color = Color(0.30, 0.78, 0.45, 1)
+
+[node name="HPLabel" type="Label" parent="Base"]
+offset_left = 0.0
+offset_top = 42.0
+offset_right = 720.0
+offset_bottom = 70.0
+theme_override_colors/font_color = Color(0.91, 0.86, 0.74, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 0.85)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 22
+text = "BASE"
+horizontal_alignment = 1
+
+; Crack overlay — hidden until HP < 50%. MatchScene drives alpha.
+[node name="Crack" type="ColorRect" parent="Base"]
+offset_left = 0.0
+offset_top = 6.0
+offset_right = 720.0
+offset_bottom = 80.0
+color = Color(0, 0, 0, 0)
+
+; Smoke overlay — hidden until HP < 25%. Sits above the wall, drifts via tween.
+[node name="Smoke" type="ColorRect" parent="Base"]
+offset_left = 0.0
+offset_top = -24.0
+offset_right = 720.0
+offset_bottom = 6.0
+color = Color(0.42, 0.42, 0.45, 0)
 
 ; ===== BOTTOM HUD (1390..1560) =====
 [node name="HUDBottom" type="ColorRect" parent="."]
@@ -123,12 +309,10 @@ offset_right = 40.0
 offset_bottom = 40.0
 color = Color(0.227, 0.227, 0.267, 1)
 
-[node name="CurrentBubble" type="ColorRect" parent="HUDBottom/Cannon"]
-offset_left = -22.0
-offset_top = -22.0
-offset_right = 22.0
-offset_bottom = 22.0
-color = Color(0.906, 0.298, 0.235, 1)
+[node name="CurrentBubble" type="Node2D" parent="HUDBottom/Cannon"]
+script = ExtResource("8_bubblevis")
+radius = 22.0
+bubble_color = 0
 
 [node name="OnDeck" type="ColorRect" parent="HUDBottom"]
 offset_left = 380.0
@@ -137,12 +321,11 @@ offset_right = 440.0
 offset_bottom = 110.0
 color = Color(0.227, 0.227, 0.267, 1)
 
-[node name="OnDeckBubble" type="ColorRect" parent="HUDBottom"]
-offset_left = 388.0
-offset_top = 68.0
-offset_right = 432.0
-offset_bottom = 102.0
-color = Color(0.204, 0.596, 0.859, 1)
+[node name="OnDeckBubble" type="Node2D" parent="HUDBottom"]
+position = Vector2(410, 85)
+script = ExtResource("8_bubblevis")
+radius = 22.0
+bubble_color = 1
 
 [node name="OnDeckLabel" type="Label" parent="HUDBottom"]
 offset_left = 350.0

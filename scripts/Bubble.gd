@@ -10,6 +10,9 @@ signal attached_to_cluster(row: int, col: int)
 
 @export_enum("Red", "Blue", "Yellow") var color: int = 0
 @export var is_special_color_bomb: bool = false
+# Hero bubble — when matched, spawns a hero of `color`. Pre-placed in the cluster
+# or converted from regular bubbles via a designer hook. Renders with hero-bubble art.
+@export var is_hero_bubble: bool = false
 
 var grid_row: int = -1
 var grid_col: int = -1
@@ -17,9 +20,16 @@ var velocity: Vector2 = Vector2.ZERO
 var in_flight: bool = false
 var cluster_ref: Cluster = null
 
-@onready var sprite: ColorRect = $Sprite
+var _fill_color: Color = Color(1, 1, 1, 1)
+var _texture: Texture2D = null
 
 const BUBBLE_RADIUS := 32.0
+
+# Visual radius is larger than collision radius because the 256² texture has
+# transparent padding around the bubble. Tweak _VISUAL_OVERSIZE if the bubbles
+# overlap (decrease) or look too small / detached (increase).
+const _VISUAL_OVERSIZE := 1.7
+
 const FIELD_WIDTH := 720.0
 const FIELD_HEIGHT := 1560.0
 const TOP_BOUND_Y := 120.0  # bottom of top HUD; bubbles passing this attach to cluster
@@ -33,18 +43,24 @@ func _ready() -> void:
 
 func set_color(c: int) -> void:
 	color = c
-	if sprite:
-		_apply_color()
+	_apply_color()
 
 func _apply_color() -> void:
-	if sprite == null: return
-	if is_special_color_bomb:
-		sprite.color = Color(1, 1, 1, 1)  # placeholder for rainbow; later: shader
-		return
-	match color:
-		GameConfig.BubbleColor.RED:    sprite.color = Color.html("#e74c3c")
-		GameConfig.BubbleColor.BLUE:   sprite.color = Color.html("#3498db")
-		GameConfig.BubbleColor.YELLOW: sprite.color = Color.html("#f1c40f")
+	_texture = BubbleRoster.get_hero_cutout(color) if is_hero_bubble else BubbleRoster.get_cutout(color)
+	# Color-bomb gets a brighter tint over the chosen texture as a placeholder.
+	# (Final art will swap for a rainbow/shader treatment.)
+	_fill_color = Color(1.4, 1.4, 1.4, 1) if is_special_color_bomb else Color(1, 1, 1, 1)
+	queue_redraw()
+
+func set_hero_bubble(flag: bool) -> void:
+	is_hero_bubble = flag
+	_apply_color()
+
+func _draw() -> void:
+	if _texture == null: return
+	var half: float = BUBBLE_RADIUS * _VISUAL_OVERSIZE
+	var rect := Rect2(Vector2(-half, -half), Vector2(half * 2.0, half * 2.0))
+	draw_texture_rect(_texture, rect, false, _fill_color)
 
 # Launch this bubble from a global position with velocity, aimed at a Cluster.
 # Caller must add the bubble to the scene tree first; this just sets state.

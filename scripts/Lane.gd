@@ -47,6 +47,23 @@ func _ready() -> void:
 	for color in GameConfig.all_bubble_colors():
 		class_damage_mult[color] = 1.0
 
+# Wipe heroes + enemies. Used by MatchScene debug stage-skip (F2).
+func reset() -> void:
+	for r in ROWS:
+		for c in COLS:
+			var h: Hero = _heroes_by_cell[r][c]
+			if h != null and is_instance_valid(h):
+				h.queue_free()
+			_heroes_by_cell[r][c] = null
+	for e in _enemies:
+		if e != null and is_instance_valid(e):
+			e.queue_free()
+	_enemies.clear()
+	frenzied_colors.clear()
+	for color in GameConfig.all_bubble_colors():
+		class_damage_mult[color] = 1.0
+	combat_enabled = false
+
 # Cell (row, col) → local position (lane-space). Centre of the cell.
 func cell_to_local_pos(row: int, col: int) -> Vector2:
 	return Vector2(col * CELL_W + CELL_W * 0.5, row * CELL_H + CELL_H * 0.5)
@@ -120,6 +137,7 @@ func _instantiate_hero(color: int, tier: String, target_row: int, col: int, sour
 	add_child(hero)
 	_heroes_by_cell[target_row][col] = hero
 	hero.died.connect(_on_hero_died)
+	Vfx.spawn_flash(hero)
 	Telemetry.log_hero_spawn(color, tier, col, target_row, source)
 
 func _replace_most_damaged_hero(new_color: int, new_tier: String, source: String) -> void:
@@ -149,6 +167,88 @@ func _replace_most_damaged_hero(new_color: int, new_tier: String, source: String
 	_heroes_by_cell[victim_row][victim_col] = null
 	victim.queue_free()
 	_instantiate_hero(new_color, new_tier, victim_row, victim_col, source)
+
+# Hit-test heroes against a world-space point. v2 §3.2 drag uses this — only
+# row-0 heroes are draggable. Returns the row-0 hero whose center is closest
+# to `world_pos` within `radius_px`, or null.
+const _HERO_HIT_RADIUS_PX := 48.0
+func find_hero_at_world_pos(world_pos: Vector2) -> Hero:
+	var best: Hero = null
+	var best_d2: float = _HERO_HIT_RADIUS_PX * _HERO_HIT_RADIUS_PX
+	for c in COLS:
+		var h: Hero = _heroes_by_cell[0][c]
+		if h == null or not is_instance_valid(h): continue
+		var d2: float = h.global_position.distance_squared_to(world_pos)
+		if d2 < best_d2:
+			best_d2 = d2
+			best = h
+	return best
+
+# Find the nearest row-0 column to a world-space x (used during drag preview).
+func world_x_to_row0_col(world_x: float) -> int:
+	var local_x: float = world_x - global_position.x
+	var c: int = int(round((local_x - CELL_W * 0.5) / CELL_W))
+	return clamp(c, 0, COLS - 1)
+
+# v2 §3.2 — drop a row-0 hero into target_col. Swap if occupied. No-op if the
+# hero is already in target_col. Returns the resulting col (post-move).
+func move_hero(hero: Hero, target_col: int) -> int:
+	if hero == null or not is_instance_valid(hero): return -1
+	target_col = clamp(target_col, 0, COLS - 1)
+	# Locate hero's current cell (row 0 only — v1 lock).
+	var src_col := -1
+	for c in COLS:
+		if _heroes_by_cell[0][c] == hero:
+			src_col = c
+			break
+	if src_col == -1: return -1
+	if src_col == target_col: return src_col
+	var occupant: Hero = _heroes_by_cell[0][target_col]
+	_heroes_by_cell[0][target_col] = hero
+	hero.lane_col = target_col
+	hero.position = cell_to_local_pos(0, target_col)
+	hero.position.y = -CELL_H * 0.5
+	if occupant != null and is_instance_valid(occupant):
+		_heroes_by_cell[0][src_col] = occupant
+		occupant.lane_col = src_col
+		occupant.position = cell_to_local_pos(0, src_col)
+		occupant.position.y = -CELL_H * 0.5
+	else:
+		_heroes_by_cell[0][src_col] = null
+	return target_col
+
+# Snapshot of all living heroes for cross-stage carry-over.
+# Returns Array of dicts: {color, tier, hp, row, col}.
+func snapshot_heroes() -> Array:
+	var out: Array = []
+	for r in ROWS:
+		for c in COLS:
+			var h: Hero = _heroes_by_cell[r][c]
+			if h == null or not is_instance_valid(h): continue
+			out.append({
+				"color": h.color,
+				"tier":  h.tier,
+				"hp":    h.hp,
+				"row":   r,
+				"col":   c,
+			})
+	return out
+
+# Re-spawn previously-saved heroes at their exact saved cells with their saved HP.
+# No heal, no reposition. Class-damage boons applied via class_damage_mult are
+# picked up at instantiate time, so call this AFTER boons have been applied.
+func restore_heroes(records: Array) -> void:
+	for rec in records:
+		var row: int = int(rec["row"])
+		var col: int = int(rec["col"])
+		if row < 0 or row >= ROWS or col < 0 or col >= COLS:
+			continue
+		if _heroes_by_cell[row][col] != null:
+			continue
+		_instantiate_hero(int(rec["color"]), String(rec["tier"]), row, col, "carryover")
+		var h: Hero = _heroes_by_cell[row][col]
+		if h != null:
+			h.hp = int(rec["hp"])
 
 func _on_hero_died(_id: int, _color: int, _tier: String, _life_ms: int, _dmg: int) -> void:
 	# Find the cell holding this hero (its node is already queue_free'd, so compare instance id).
@@ -189,6 +289,7 @@ func spawn_boss(color: int, col: int) -> Enemy:
 	e.position = Vector2(col * CELL_W + CELL_W * 0.5,
 		float(ENEMY_SPAWN_ROW) * CELL_H + CELL_H * 0.5)
 	e.is_boss = true
+	e.stage_num = 5
 	e.boss_hp_override = GameConfig.boss_hp
 	e.boss_damage_override = GameConfig.boss_damage_on_reach
 	add_child(e)
@@ -200,7 +301,9 @@ func spawn_boss(color: int, col: int) -> Enemy:
 
 # V8 §3.6: scripted Phase 2 wave spawner. wave_index is the cumulative enemy
 # index across the wave (0-based), used for round-robin column assignment + telemetry.
-func spawn_wave_enemy(color: int, col: int, wave_index: int) -> void:
+# `variant` is "walker" | "runner" | "brute" — see combat-design.md §3.2.
+# `stage_num` lets the enemy apply per-stage HP/dmg scalars (combat-design.md §3.3).
+func spawn_wave_enemy(color: int, col: int, wave_index: int, variant: String = "walker", stage_num: int = 1) -> void:
 	col = clamp(col, 0, COLS - 1)
 	if enemy_scene == null:
 		Telemetry.log_enemy_spawn(0, color, col, 0, wave_index)
@@ -208,6 +311,8 @@ func spawn_wave_enemy(color: int, col: int, wave_index: int) -> void:
 	var e: Enemy = enemy_scene.instantiate()
 	e.color = color
 	e.lane_col = col
+	e.variant = variant
+	e.stage_num = stage_num
 	# Spawn near the top of the device, well above the cluster, then march down
 	# through the cluster area to the spawn line (where heroes wait at row 0).
 	# Lane is at world y=1020; row 0 is at lane-local y=30. Virtual row
@@ -254,24 +359,83 @@ func _on_enemy_died(enemy_id: int, _color: int, _killed_by: int, _life_ms: int) 
 		emit_signal("lane_cleared")
 
 # ============================================================
-# §3.5 — Targeting helper for heroes
+# §3.5 — Per-class targeting (combat-design.md §2.1)
 # ============================================================
-# Nearest enemy within `range_cells` Euclidean radius (range is a radius, not column-locked).
-# Tie-break: lowest current HP (focus-fire heuristic).
-func find_enemy_in_range(hero: Hero, range_cells: int) -> Enemy:
+
+# Fire Knight (RED) — cone in front: cols [hero.col ± red_cone_cols],
+# rows [-red_cone_rows .. 0]. Pick the enemy CLOSEST to spawn line
+# (largest lane_row in that range — i.e. about to cross).
+func find_target_red(hero: Hero) -> Enemy:
 	var best: Enemy = null
-	var best_dist := INF
+	var best_row := -9999
+	var max_rows_up: int = GameConfig.red_cone_rows
+	var col_span: int = GameConfig.red_cone_cols
 	for e in _enemies:
 		if e == null or not is_instance_valid(e): continue
-		var dx: float = e.lane_col - hero.lane_col
-		var dy: float = e.lane_row - hero.lane_row
-		var d := sqrt(dx * dx + dy * dy)
-		if d > float(range_cells): continue
-		if d < best_dist:
-			best = e; best_dist = d
-		elif is_equal_approx(d, best_dist) and best != null and e.hp < best.hp:
+		if abs(e.lane_col - hero.lane_col) > col_span: continue
+		if e.lane_row > 0 or e.lane_row < -max_rows_up: continue
+		if e.lane_row > best_row:
+			best = e; best_row = e.lane_row
+		elif e.lane_row == best_row and best != null and e.hp < best.hp:
 			best = e
 	return best
+
+# Ice Mage (BLUE) — column lob: cols [hero.col ± blue_col_radius],
+# rows [-blue_reach_rows .. 0]. Pick the enemy FURTHEST UP (smallest lane_row)
+# so the lob lands among the densest pack.
+func find_target_blue(hero: Hero) -> Enemy:
+	var best: Enemy = null
+	var best_row := 9999
+	var max_rows_up: int = GameConfig.blue_reach_rows
+	var col_span: int = GameConfig.blue_col_radius
+	for e in _enemies:
+		if e == null or not is_instance_valid(e): continue
+		if abs(e.lane_col - hero.lane_col) > col_span: continue
+		if e.lane_row > 0 or e.lane_row < -max_rows_up: continue
+		if e.lane_row < best_row:
+			best = e; best_row = e.lane_row
+		elif e.lane_row == best_row and best != null and e.hp > best.hp:
+			best = e  # tie: tag the beefier one
+	return best
+
+# Archer (YELLOW) — column snipe: cols == hero.col (fallback ±1),
+# rows [-yellow_reach_rows .. 0]. Pick the enemy FURTHEST UP (smallest lane_row).
+func find_target_yellow(hero: Hero) -> Enemy:
+	var max_rows_up: int = GameConfig.yellow_reach_rows
+	var best: Enemy = _scan_column(hero.lane_col, max_rows_up)
+	if best != null:
+		return best
+	# Fallback: adjacent columns
+	var left: Enemy = _scan_column(hero.lane_col - 1, max_rows_up)
+	var right: Enemy = _scan_column(hero.lane_col + 1, max_rows_up)
+	if left == null:  return right
+	if right == null: return left
+	# Pick the one furthest up
+	return left if left.lane_row < right.lane_row else right
+
+func _scan_column(col: int, max_rows_up: int) -> Enemy:
+	if col < 0 or col >= COLS: return null
+	var best: Enemy = null
+	var best_row := 9999
+	for e in _enemies:
+		if e == null or not is_instance_valid(e): continue
+		if e.lane_col != col: continue
+		if e.lane_row > 0 or e.lane_row < -max_rows_up: continue
+		if e.lane_row < best_row:
+			best = e; best_row = e.lane_row
+	return best
+
+# AoE helper for Ice Mage splash. Returns enemies within `radius_cells` of
+# a lane-local pixel point (CELL_W on x, CELL_H on y).
+func enemies_in_aoe(center_local_pos: Vector2, radius_cells: float) -> Array:
+	var hits: Array = []
+	var r_sq_px: float = (radius_cells * CELL_H) * (radius_cells * CELL_H)
+	for e in _enemies:
+		if e == null or not is_instance_valid(e): continue
+		var d_sq: float = (e.position - center_local_pos).length_squared()
+		if d_sq <= r_sq_px:
+			hits.append(e)
+	return hits
 
 # ============================================================
 # §3.5 — Color frenzy buff
