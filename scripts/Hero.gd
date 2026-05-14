@@ -249,55 +249,92 @@ func _hp_ratio() -> float:
 	if m <= 0: return 1.0
 	return float(hp) / float(m)
 
+# Tier-based volley: Bronze 1 shot, Silver 2 shots, Gold 3 shots. All shots
+# in a volley target the SAME enemy. If the target dies mid-volley, remaining
+# shots are skipped (the volley is locked to the primary target).
+func _tier_shot_count() -> int:
+	match tier:
+		"silver": return 2
+		"gold":   return 3
+		_:        return 1
+
 # ----- Fire Knight (RED): cone + chance to cleave row neighbors -----
 func _fire_red() -> void:
 	var target: Enemy = lane_ref.find_target_red(self)
 	if target == null: return
+	# One lunge per attack tick. Then N staggered slashes on the SAME target;
+	# remaining slashes are dropped if the target dies before they fire.
+	var dir0: Vector2 = (target.global_position - global_position).normalized()
+	_vfx_red_lunge(dir0)
+	_red_slash_shot(target)
+	for i in range(1, _tier_shot_count()):
+		var captured: Enemy = target
+		get_tree().create_timer(0.10 * float(i)).timeout.connect(func():
+			if is_instance_valid(captured): _red_slash_shot(captured))
+	# Cleave RNG fires once per attack tick (not per shot) on the primary target.
+	if randf() < GameConfig.red_cleave_chance:
+		_red_cleave_proc(target)
+
+# One slash on one target — slash arc + heat wedge + impact sparks + damage.
+# Lunge is handled separately by _fire_red so multi-shot volleys don't stack lunges.
+func _red_slash_shot(target: Enemy) -> void:
+	if not is_instance_valid(target): return
+	var dir: Vector2 = (target.global_position - global_position).normalized()
+	_vfx_red_slash(dir, 130.0, Color(1.0, 0.55, 0.20, 0.92))
+	_vfx_red_wedge(dir, 150.0, 45.0, Color(1.0, 0.35, 0.18, 0.30), 0.20)
+	_vfx_impact_sparks(target.global_position,
+		Color(1.0, 0.7, 0.25, 1.0), 8, 36.0)
 	var dmg: int = _damage_against(target, GameConfig.red_dmg_mult)
 	var is_crit: bool = target.color == color
 	var target_pos: Vector2 = target.position
-	_vfx_red_cone(target)
 	target.take_damage(dmg, color)
 	_spawn_damage_number(target_pos, dmg, is_crit)
 	if is_crit:
 		Vfx.color_counter_badge(lane_ref, target_pos, Vfx.color_for_bubble(color))
 	_damage_dealt_total += dmg
 	Telemetry.log_hero_attack(_hero_id, target.get_instance_id(), dmg)
-	# Cleave proc: hit up to N other enemies in the SAME row in the cone.
-	if randf() < GameConfig.red_cleave_chance:
-		var cleaved: int = 0
-		# CLEAVE! badge above the hero — fires once per proc, regardless of count.
-		Vfx.floating_badge(lane_ref, position + Vector2(0, -70),
-			"CLEAVE!", Color(1.0, 0.55, 0.20))
-		for e in lane_ref._enemies:
-			if cleaved >= GameConfig.red_cleave_targets: break
-			if e == null or not is_instance_valid(e): continue
-			if e == target: continue
-			if e.lane_row != target.lane_row: continue
-			if abs(e.lane_col - lane_col) > GameConfig.red_cone_cols: continue
-			# Mini-wedge fired from hero toward this cleaved enemy.
-			# Narrower + dimmer than the primary so it reads as a secondary strike.
-			var c_dir: Vector2 = (e.global_position - global_position).normalized()
-			_vfx_red_wedge(c_dir, 90.0, 22.0,
-				Color(1.0, 0.55, 0.20, 0.45), 0.14)
-			var cd: int = _damage_against(e, GameConfig.red_dmg_mult)
-			var c_crit: bool = e.color == color
-			var c_pos: Vector2 = e.position
-			e.take_damage(cd, color)
-			_spawn_damage_number(c_pos, cd, c_crit)
-			if c_crit:
-				Vfx.color_counter_badge(lane_ref, c_pos, Vfx.color_for_bubble(color))
-			_damage_dealt_total += cd
-			cleaved += 1
+
+# RNG cleave proc — hits row neighbors in cone with narrower secondary wedges.
+func _red_cleave_proc(primary: Enemy) -> void:
+	if not is_instance_valid(primary): return
+	var cleaved: int = 0
+	Vfx.floating_badge(lane_ref, position + Vector2(0, -70),
+		"CLEAVE!", Color(1.0, 0.55, 0.20))
+	for e in lane_ref._enemies:
+		if cleaved >= GameConfig.red_cleave_targets: break
+		if e == null or not is_instance_valid(e): continue
+		if e == primary: continue
+		if e.lane_row != primary.lane_row: continue
+		if abs(e.lane_col - lane_col) > GameConfig.red_cone_cols: continue
+		var c_dir: Vector2 = (e.global_position - global_position).normalized()
+		_vfx_red_wedge(c_dir, 90.0, 22.0,
+			Color(1.0, 0.55, 0.20, 0.45), 0.14)
+		var cd: int = _damage_against(e, GameConfig.red_dmg_mult)
+		var c_crit: bool = e.color == color
+		var c_pos: Vector2 = e.position
+		e.take_damage(cd, color)
+		_spawn_damage_number(c_pos, cd, c_crit)
+		if c_crit:
+			Vfx.color_counter_badge(lane_ref, c_pos, Vfx.color_for_bubble(color))
+		_damage_dealt_total += cd
+		cleaved += 1
 
 # ----- Ice Mage (BLUE): lob + AoE splash + slow -----
 func _fire_blue() -> void:
 	var target: Enemy = lane_ref.find_target_blue(self)
 	if target == null: return
+	_blue_lob_shot(target)
+	for i in range(1, _tier_shot_count()):
+		var captured: Enemy = target
+		get_tree().create_timer(0.12 * float(i)).timeout.connect(func():
+			if is_instance_valid(captured): _blue_lob_shot(captured))
+
+# One ice-lob on one target — independent crystal + AoE splash + slow per shot.
+func _blue_lob_shot(target: Enemy) -> void:
+	if not is_instance_valid(target): return
 	var primary_dmg: int = _damage_against(target, GameConfig.blue_dmg_mult)
 	_vfx_blue_lob(target)
 	# AoE: every enemy within blue_aoe_radius_cells of the target takes same dmg + slow.
-	# (Friendly fire OFF — heroes are excluded; AoE list is enemies only.)
 	var splash: Array = lane_ref.enemies_in_aoe(target.position, GameConfig.blue_aoe_radius_cells)
 	for e in splash:
 		if e == null or not is_instance_valid(e): continue
@@ -317,11 +354,25 @@ func _fire_blue() -> void:
 func _fire_yellow() -> void:
 	var target: Enemy = lane_ref.find_target_yellow(self)
 	if target == null: return
+	# Bowstring recoil once per attack tick (single release for the whole volley).
+	var dir0: Vector2 = (target.global_position - global_position).normalized()
+	var rec := create_tween()
+	rec.tween_property(self, "position", position - dir0 * 5.0, 0.05)
+	rec.tween_property(self, "position", position, 0.12)
+	_yellow_arrow_shot(target)
+	for i in range(1, _tier_shot_count()):
+		var captured: Enemy = target
+		get_tree().create_timer(0.08 * float(i)).timeout.connect(func():
+			if is_instance_valid(captured): _yellow_arrow_shot(captured))
+
+# One arrow on one target — independent damage + VFX per shot.
+func _yellow_arrow_shot(target: Enemy) -> void:
+	if not is_instance_valid(target): return
 	var dmg_f: float = float(damage) * damage_mult_global * damage_mult_class * GameConfig.yellow_dmg_mult
 	if target.color == color:
 		dmg_f *= GameConfig.color_counter_multiplier
-	var max_hp: int = _enemy_max_hp(target)
-	var is_execute: bool = max_hp > 0 and (float(target.hp) / float(max_hp)) < GameConfig.yellow_execute_threshold
+	var enemy_max_hp: int = _enemy_max_hp(target)
+	var is_execute: bool = enemy_max_hp > 0 and (float(target.hp) / float(enemy_max_hp)) < GameConfig.yellow_execute_threshold
 	if is_execute:
 		dmg_f *= (1.0 + GameConfig.yellow_execute_bonus)
 	var dmg: int = int(round(dmg_f))
@@ -331,8 +382,6 @@ func _fire_yellow() -> void:
 	_vfx_yellow_shot(target, is_execute)
 	target.take_damage(dmg, color)
 	_spawn_damage_number(target_pos, dmg, is_crit)
-	# Color-counter ring only — execute is already signalled by the gold flash
-	# in _vfx_yellow_shot. Keeping them visually distinct.
 	if is_color_counter:
 		Vfx.color_counter_badge(lane_ref, target_pos, Vfx.color_for_bubble(color))
 	_damage_dealt_total += dmg
@@ -471,7 +520,7 @@ func _vfx_impact_sparks(world_pos: Vector2, color: Color,
 func _vfx_blue_lob(target: Enemy) -> void:
 	# Chunky glowing ice crystal arcs from hero to target, leaves a sparkle trail,
 	# detonates into a radial shard burst + expanding ring on impact.
-	var shard: Node2D = _make_ice_crystal(16.0)
+	var shard: Node2D = _make_ice_crystal(20.0)
 	get_parent().add_child(shard)  # parent = Lane (so global_position works directly)
 	shard.global_position = global_position
 	var p0: Vector2 = global_position
@@ -606,17 +655,15 @@ func _spawn_blue_aoe_ring(local_target_pos: Vector2) -> void:
 func _vfx_yellow_shot(target: Enemy, is_execute: bool) -> void:
 	# Real arrow projectile: shaft + fletching + head, flies hero → target with
 	# a fading streak trail. Execute shots are larger and glow hotter.
+	# Note: bowstring recoil happens once-per-attack-tick in _fire_yellow,
+	# not here (so a Silver/Gold volley doesn't stack N recoils).
 	var p0: Vector2 = global_position
 	var p1: Vector2 = target.global_position
 	var dir: Vector2 = (p1 - p0).normalized()
-	# Hero recoil: pull back opposite to fire dir (bowstring release).
-	var rec := create_tween()
-	rec.tween_property(self, "position", position - dir * 5.0, 0.05)
-	rec.tween_property(self, "position", position, 0.12)
 	# Build arrow as a Node2D so it rotates as a rigid body.
 	var arrow_color := Color(1.0, 0.85, 0.20, 1.0) if not is_execute \
 		else Color(1.0, 0.95, 0.55, 1.0)
-	var arrow := _make_arrow(20.0 if not is_execute else 26.0, arrow_color)
+	var arrow := _make_arrow(26.0 if not is_execute else 32.0, arrow_color)
 	arrow.z_index = 75
 	get_parent().add_child(arrow)  # parent = Lane
 	arrow.global_position = p0
