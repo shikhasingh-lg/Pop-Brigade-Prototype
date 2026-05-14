@@ -1,6 +1,6 @@
 # Pop Brigade — v1 Godot Prototype Scaffold
 
-> **Status:** Scaffold only. Project opens, runs to a status label. No gameplay implemented yet — that's the W1–W3 sprint per design spec §5.3.
+> **Status:** Scaffold only. Project opens, runs to a status label. No gameplay implemented yet — that's the Milestone 1–3 build per design spec §5.3.
 
 ## What this is
 
@@ -68,36 +68,38 @@ godot-prototype/
 | §4.3 Stages | `MatchScene.gd::start_stage()` + `GameConfig.get_stage_*` | ⏳ Per-stage Phase 1 caps + wave scripts needed |
 | §6.2 Telemetry events | `Telemetry.gd` | ✓ Updated for phased design (phase1/2_start/end, bubble_lost_below_line) |
 
-## Build sprint plan (mirrors design spec §5.3)
+## Build plan (mirrors design spec §5.3)
 
-### Week 1 — Cluster physics
+Milestones are scoped by deliverable, not calendar time — work proceeds in order regardless of how long each takes. ("Milestone" instead of "Phase" here to avoid collision with the in-game Cluster/Wave **phases**.)
+
+### Milestone 1 — Cluster physics
 - [ ] Implement `Cluster.setup_for_stage()` — populate hex grid with random colors
 - [ ] Implement `Cluster.attach_bubble()` — nearest-hex snap, match detection
 - [ ] Implement `Cluster._descend_one_row()` — visual + spawn-line crossing logic
 - [ ] Implement `Cluster._pop_match()` — flood-fill detection, falling bubbles
 - [ ] Implement `Bubble.gd` physics (velocity, attach trigger, ricochet)
-- [ ] **W1 gate:** Cluster alone is playable. No lane yet. Greybox bubbles fire, attach, pop, fall.
+- [ ] **Milestone 1 gate:** Cluster alone is playable. No lane yet. Greybox bubbles fire, attach, pop, fall.
 
-### Week 2 — Phase 2 wave + lane + heroes + enemies
-- [x] Implement `Cannon.gd` input (touch-and-hold, drag-aim, release-fire) — Phase 1 only
+### Milestone 2 — Wave + lane + heroes + enemies
+- [x] Implement `Cannon.gd` input (touch-and-hold, drag-aim, release-fire) — Cluster phase only
 - [x] Implement `Cannon._draw_from_palette()` weighting + queue swap
-- [x] Implement **phase state machine** in `MatchScene.gd` (P1 → 1s wipe → P2 → clear/fail)
+- [x] Implement **phase state machine** in `MatchScene.gd` (Cluster → 1s wipe → Wave → clear/fail)
 - [x] Implement **scripted wave spawner** (per-stage composition + interval, NOT cluster-driven)
-- [x] Implement `Hero._try_fire()` targeting + damage (Phase 2 only — gated on `Lane.combat_enabled`)
-- [x] Implement hero idle pose for Phase 1 (no targeting — gated as above)
+- [x] Implement `Hero._try_fire()` targeting + damage (Wave phase only — gated on `Lane.combat_enabled`)
+- [x] Implement hero idle pose for Cluster phase (no targeting — gated as above)
 - [x] Implement `Enemy._advance_cell()` movement + reach cannon
 - [x] Implement `Lane.find_enemy_in_range()` + oldest-hero replacement
-- [x] Implement color frenzy carryover (P1 trigger → P2 persistent buff via `Lane.frenzied_colors` + `apply_color_frenzy_persistent`)
+- [x] Implement color frenzy carryover (Cluster trigger → Wave persistent buff via `Lane.frenzied_colors` + `apply_color_frenzy_persistent`)
 - [x] Implement Stage 5 boss (`Lane.spawn_boss` appended after walker wave; stage-clear waits for boss death)
-- [ ] **OQ11:** Hero carry-over to next stage's Phase 1 — currently carries over by default (Lane never resets `_heroes_by_cell`). Confirm or reset in playtest.
-- [ ] **W2 gate:** Full stage playable on stages 1–3 (P1 build → P2 defend). Debug HUD shows phase + cluster size + wave queue. _Code-complete; needs manual playtest._
+- [ ] **OQ11:** Hero carry-over to next stage's Cluster phase — currently carries over by default (Lane never resets `_heroes_by_cell`). Confirm or reset in playtest.
+- [ ] **Milestone 2 gate:** Full stage playable on stages 1–3 (Cluster build → Wave defend). Debug HUD shows phase + cluster size + wave queue. _Code-complete; needs manual playtest._
 
-### Week 3 — Stages 4–5, screens, telemetry
+### Milestone 3 — Stages 4–5, screens, telemetry
 - [x] Stage 4 (color bomb appears) + Stage 5 (boss) — both wired (Cluster places a color bomb on stage ≥4; MatchScene appends boss after walker wave on Stage 5)
 - [x] Implement 6 remaining screens — `MetaHub`, `Loadout`, `Pause` (overlay), `StageClear` (boon pick), `StageFail`, `RunEnd`. `Main.gd` is now a screen router; `MatchScene` emits `stage_cleared` / `stage_failed` / `quit_run_requested` for the router to drive transitions.
 - [x] Wire remaining `Telemetry.log_*()` call sites — `log_loadout_pick`, `log_boon_picked`, `log_pause_open`, `log_pause_resume`, `log_run_end` now fire from their screens.
 - [x] Per-run state lives in new `RunState` autoload (`scripts/RunState.gd`): cannon bias, picked boons, rollup stats for RunEnd, `runs_completed` persisted to `user://run_save.json`.
-- [ ] **W3 gate:** All 8 screens connected, full run playable, telemetry firing to `.jsonl`. _Code-complete; needs manual end-to-end playtest._
+- [ ] **Milestone 3 gate:** All 8 screens connected, full run playable, telemetry firing to `.jsonl`. _Code-complete; needs manual end-to-end playtest._
 
 ## How telemetry works
 
@@ -123,10 +125,10 @@ Telemetry.end_session(runs_completed)
 ## Key open questions (design spec §7.1)
 
 These should be resolved DURING the build, not before:
-- **OQ1:** Phase transition wipe — 1s "GET READY!" vs none vs 2s "PREPARE!"? (W2 internal A/B)
+- **OQ1:** Phase transition wipe — 1s "GET READY!" vs none vs 2s "PREPARE!"? (Milestone 2 internal A/B)
 - **OQ3:** Does greybox produce valid readability signal, especially in Phase 2 watching? (After tester 2–3)
-- **OQ5:** 8 vs 7 cluster columns on small phones? (W1 prototype on Pixel 6a)
-- **OQ7:** Cluster descent timer-based vs shots-based? (W1–W2 internal A/B)
+- **OQ5:** 8 vs 7 cluster columns on small phones? (Milestone 1 prototype on Pixel 6a)
+- **OQ7:** Cluster descent timer-based vs shots-based? (Milestone 1–2 internal A/B)
 - **OQ8:** Phase 2 pacing — if testers say P2 drags, first tune wave caps + density (comp-set proves observation works when pacing is right). Mid-wave agency is a v1.1 escalation only if pacing tuning fails.
 - **OQ10:** Bonus for early Phase 1 clear, or is speed its own reward?
 - **OQ11:** Hero carry-over between stages — keep or fresh?
