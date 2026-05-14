@@ -25,6 +25,10 @@ var stages_cleared: int = 0
 var last_stage_reached: int = 1
 var completion: String = "in_progress"     # "win" | "fail" | "quit"
 var last_fail_reason: String = ""
+# Player base HP carried across stages within a realm. Reset to 0 on every
+# new run (i.e., between realms) — MatchScene treats 0 as "initialize from
+# GameConfig.stage_start_hp" on the next stage start.
+var run_player_hp: int = 0
 
 # Boon-derived run state — recomputed at every stage start from run_boons.
 var boon_global_dmg_mult: float = 1.0
@@ -70,6 +74,7 @@ func begin_new_run(starting_realm: int = 1) -> void:
 	last_stage_reached = 1
 	completion = "in_progress"
 	last_fail_reason = ""
+	run_player_hp = 0
 	total_bubbles_fired = 0
 	total_pops = 0
 	total_bubbles_lost = 0
@@ -181,12 +186,17 @@ func award_stars(realm: int, stage: int, stars: int) -> void:
 		_save()
 
 
-# A stage is unlocked if it is S1 of an unlocked realm, OR the prior stage in
-# the same realm has at least 1 star.
+# Stage unlock rule:
+#   - S1 of any unlocked realm is always available.
+#   - S2-S5 are only available for replay AFTER the realm boss (S5) has been
+#     cleared at least once. Until then, every fresh attempt at the realm must
+#     start at S1 and progress sequentially (mid-run progression is implicit
+#     via Main.gd handing the next stage straight to MatchScene — StageSelect
+#     is only re-entered after a fail/quit, so a fail always restarts at S1).
 func is_stage_unlocked(realm: int, stage: int) -> bool:
 	if not is_realm_unlocked(realm): return false
 	if stage <= 1: return true
-	return get_stars(realm, stage - 1) >= 1
+	return is_realm_completed(realm)
 
 
 # R1 always unlocked. Rn unlocked once R(n-1)S5 has at least 1 star.

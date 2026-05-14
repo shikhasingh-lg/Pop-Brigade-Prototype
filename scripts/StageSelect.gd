@@ -92,7 +92,7 @@ func _build_stage_button(stage: int) -> Control:
 	# State pill.
 	var state_lbl := Label.new()
 	if not unlocked:
-		state_lbl.text = "🔒 Clear S%d first" % max(1, stage - 1)
+		state_lbl.text = "🔒 Beat the boss to replay"
 		state_lbl.add_theme_color_override("font_color", Color(0.55, 0.55, 0.60, 1))
 	elif stars == 0:
 		state_lbl.text = "▶ New"

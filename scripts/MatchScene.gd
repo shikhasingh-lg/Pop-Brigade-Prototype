@@ -285,8 +285,15 @@ func start_stage(num: int, run_boons: Array, realm: int = 1) -> void:
 	stage_num = num
 	realm_num = clamp(realm, 1, RunState.REALM_COUNT)
 	RunState.realm_num = realm_num
-	player_hp = GameConfig.stage_start_hp
+	# HP carries across stages within a realm. Stage 1 = entering a new realm
+	# (or new run) → fresh HP. Stages 2-5 → carry HP from the prior stage via
+	# RunState.run_player_hp (which is reset to 0 by begin_new_run).
+	if num <= 1 or RunState.run_player_hp <= 0:
+		player_hp = GameConfig.stage_start_hp
+	else:
+		player_hp = min(RunState.run_player_hp, GameConfig.stage_start_hp)
 	_max_player_hp = GameConfig.stage_start_hp
+	RunState.run_player_hp = player_hp
 	stage_start_ms = Time.get_ticks_msec()
 	_stage_active = true
 	_total_pops = 0
@@ -1064,6 +1071,9 @@ func _clear_stage() -> void:
 	# Snapshot surviving heroes so the next stage can carry them forward.
 	if lane:
 		RunState.run_heroes = lane.snapshot_heroes()
+	# Carry the player's remaining HP into the next stage (same realm).
+	# Reset back to full happens on stage 1 of the next realm via start_stage.
+	RunState.run_player_hp = player_hp
 	# Star award per §8.7. HP% + moves-unused% determine 1-3 stars.
 	var hp_pct: float = 0.0 if _max_player_hp <= 0 else float(player_hp) / float(_max_player_hp)
 	var moves_unused_pct: float = 0.0 if _start_moves <= 0 else float(_moves_remaining) / float(_start_moves)

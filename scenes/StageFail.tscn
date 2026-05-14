@@ -46,10 +46,18 @@ theme_override_font_sizes/font_size = 28
 text = "Reached Stage 1/5"
 horizontal_alignment = 1
 
-[node name="EndButton" type="Button" parent="Modal"]
-offset_left = 90.0
+[node name="RetryButton" type="Button" parent="Modal"]
+offset_left = 30.0
 offset_top = 320.0
-offset_right = 390.0
+offset_right = 235.0
 offset_bottom = 420.0
-theme_override_font_sizes/font_size = 32
+theme_override_font_sizes/font_size = 28
+text = "RETRY STAGE"
+
+[node name="EndButton" type="Button" parent="Modal"]
+offset_left = 245.0
+offset_top = 320.0
+offset_right = 450.0
+offset_bottom = 420.0
+theme_override_font_sizes/font_size = 28
 text = "END RUN"

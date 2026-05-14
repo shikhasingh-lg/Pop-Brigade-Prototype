@@ -85,8 +85,18 @@ func _show_stage_clear(realm: int, stage: int) -> void:
 func _show_stage_fail(stage_num: int) -> void:
 	var s = STAGE_FAIL_SCENE.instantiate()
 	s.end_run_pressed.connect(_show_run_end)
+	s.retry_pressed.connect(_on_retry_pressed)
 	_swap_to(s)
 	s.setup(stage_num)
+
+func _on_retry_pressed(stage_num: int) -> void:
+	# Retry the failed stage with current boons + heroes intact.
+	# HP auto-resets in MatchScene.start_stage because run_player_hp is 0 (died).
+	# Clear the "fail" completion so the run reads as in-progress again.
+	RunState.completion = "in_progress"
+	RunState.last_fail_reason = ""
+	_match_pending_stage = stage_num
+	_show_match()
 
 func _show_run_end() -> void:
 	var s = RUN_END_SCENE.instantiate()
