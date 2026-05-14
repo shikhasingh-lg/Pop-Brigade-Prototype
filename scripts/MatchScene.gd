@@ -537,6 +537,14 @@ func _process_phase_1(delta: float) -> void:
 	if cluster and cluster.bubbles_above_spawn_line_count() == 0:
 		_enter_transition("cluster_cleared")
 		return
+	# End Phase 1 once every hero bubble has been captured — no point making
+	# the player pop the rest of the cluster after all heroes are collected.
+	# Gated on _bubbles_fired > 0 so a stage seeded with 0 hero bubbles doesn't
+	# auto-skip on frame 1.
+	if cluster and _bubbles_fired > 0 and cluster.hero_bubbles_above_spawn_line_count() == 0:
+		cluster.sweep_all()
+		_enter_transition("heroes_collected")
+		return
 	if _phase1_time_remaining <= 0:
 		if cluster: cluster.sweep_all()
 		_enter_transition("time_cap")

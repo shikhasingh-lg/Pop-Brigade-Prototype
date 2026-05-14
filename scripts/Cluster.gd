@@ -462,6 +462,21 @@ func bubbles_above_spawn_line_count() -> int:
 				n += 1
 	return n
 
+# Hero-bubble variant of the above. Used by MatchScene to end Phase 1 early
+# once the player has captured every hero available — at that point further
+# bubble-popping is busywork.
+func hero_bubbles_above_spawn_line_count() -> int:
+	var n := 0
+	for r in range(grid.size()):
+		var row_data: Array = grid[r]
+		for c in range(row_data.size()):
+			var b: Bubble = row_data[c]
+			if b == null: continue
+			if not b.is_hero_bubble: continue
+			if b.global_position.y + BUBBLE_RADIUS_PX < _spawn_line_world_y:
+				n += 1
+	return n
+
 # V8 §3.8: Phase 1 time cap hit — remaining cluster bubbles are wiped (no enemy).
 func sweep_all() -> void:
 	for r in range(grid.size()):
