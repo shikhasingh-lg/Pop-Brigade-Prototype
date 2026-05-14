@@ -43,16 +43,16 @@ const ROSTER := {
 		"archetype": "Druid",
 		"role":      "Healer / support",
 		"portrait":  "res://assets/heroes/druid/druid.png",
-		"color":     -1,       # v2 — GREEN reserved
-		"v1_active": false,
+		"color":     3,        # BubbleColor.GREEN (R3+)
+		"v1_active": true,
 	},
 	"wizard": {
 		"name":     "Merlin",
 		"archetype": "Wizard",
 		"role":      "Ranged AOE burst",
 		"portrait":  "res://assets/heroes/wizard/wizard.png",
-		"color":     -1,       # v2 — PURPLE reserved
-		"v1_active": false,
+		"color":     4,        # BubbleColor.PURPLE (R5+)
+		"v1_active": true,
 	},
 }
 
@@ -73,7 +73,10 @@ func get_portrait(slug: String) -> Texture2D:
 	var entry := get_entry(slug)
 	if entry.is_empty():
 		return null
-	return load(entry["portrait"]) as Texture2D
+	var path: String = entry["portrait"]
+	if not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
 
 func get_cutout(slug: String) -> Texture2D:
 	# Transparent-background cutout (lane sprites, in-game compositing).
@@ -84,7 +87,10 @@ func get_cutout(slug: String) -> Texture2D:
 	var path: String = (entry["portrait"] as String).replace(".png", "-cutout.png")
 	if ResourceLoader.exists(path):
 		return load(path) as Texture2D
-	return load(entry["portrait"]) as Texture2D
+	var portrait: String = entry["portrait"]
+	if ResourceLoader.exists(portrait):
+		return load(portrait) as Texture2D
+	return null
 
 # Returns the first active hero entry bound to a given BubbleColor.
 func get_for_color(color: int) -> Dictionary:

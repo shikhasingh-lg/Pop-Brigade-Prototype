@@ -44,17 +44,22 @@ var _pending_rows: int = 0            # shot-triggered descent queue
 func _ready() -> void:
 	_initial_y = position.y
 
-func setup_for_stage(stage_num: int) -> void:
-	current_height = GameConfig.get_stage_start_rows(stage_num)
+var current_realm: int = 1   # realm-aware setup; defaults to R1 for legacy callers.
+
+func setup_for_stage(stage_num: int, realm_num: int = 1) -> void:
+	current_realm = realm_num
+	# §3.10.1 realm-aware row count.
+	current_height = GameConfig.get_realm_cluster_rows(realm_num, stage_num)
 	_clear_visual_grid()
 	grid.clear()
+	var palette: Array = GameConfig.get_palette_for_realm(realm_num)
 	for row in range(current_height):
 		var is_offset := row % 2 == 1
 		var cols_this_row := COLS_ODD if is_offset else COLS_EVEN
 		var row_data: Array = []
 		for col in range(cols_this_row):
 			var b: Bubble = bubble_scene.instantiate()
-			b.color = _pick_random_color()
+			b.color = palette[randi() % palette.size()]
 			# 1 color bomb on stage >= 4 (§3.7)
 			if stage_num >= 4 and row == 1 and col == 3:
 				b.is_special_color_bomb = true
@@ -70,8 +75,6 @@ func setup_for_stage(stage_num: int) -> void:
 	_stage_over = false
 	_pending_rows = 0
 	_is_descending = false
-	# Spawn line is a FIXED world Y captured at stage start. Without caching, the
-	# crossing check would chase the cluster down and never trigger.
 	_spawn_line_world_y = global_position.y + spawn_line_y
 	_last_descend_ms = Time.get_ticks_msec()
 
@@ -81,7 +84,8 @@ func _clear_visual_grid() -> void:
 			child.queue_free()
 
 func _pick_random_color() -> int:
-	var colors := GameConfig.all_bubble_colors()
+	# Realm-aware palette (§3.10.3). current_realm is set in setup_for_stage.
+	var colors := GameConfig.get_palette_for_realm(current_realm)
 	return colors[randi() % colors.size()]
 
 # Flip N random eligible cells in the freshly-built grid to hero bubbles.

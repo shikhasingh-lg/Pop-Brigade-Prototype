@@ -52,7 +52,10 @@ func _ready() -> void:
 		var row := []
 		for c in COLS: row.append(null)
 		_heroes_by_cell.append(row)
-	for color in GameConfig.all_bubble_colors():
+	# Initialise damage mults for ALL 5 colors so R3+ heroes don't read missing keys.
+	for color in [GameConfig.BubbleColor.RED, GameConfig.BubbleColor.BLUE,
+			GameConfig.BubbleColor.YELLOW, GameConfig.BubbleColor.GREEN,
+			GameConfig.BubbleColor.PURPLE]:
 		class_damage_mult[color] = 1.0
 
 # Wipe heroes + enemies. Used by MatchScene debug stage-skip (F2).
@@ -69,7 +72,9 @@ func reset() -> void:
 			e.queue_free()
 	_enemies.clear()
 	frenzied_colors.clear()
-	for color in GameConfig.all_bubble_colors():
+	for color in [GameConfig.BubbleColor.RED, GameConfig.BubbleColor.BLUE,
+			GameConfig.BubbleColor.YELLOW, GameConfig.BubbleColor.GREEN,
+			GameConfig.BubbleColor.PURPLE]:
 		class_damage_mult[color] = 1.0
 	combat_enabled = false
 
@@ -417,25 +422,31 @@ func spawn_enemy_from_stage_pacing(_stage_num: int) -> void:
 	var picked: int = colors[randi() % colors.size()]
 	_spawn_enemy(picked, col, "pacing")
 
-# V8 §4.3 Stage 5: boss spawned by MatchScene after the walker wave finishes.
-# Boss uses GameConfig.boss_hp / boss_damage_on_reach; visual = larger ColorRect
-# via Enemy's tier-style scale heuristic (kept simple in v1 greybox).
-func spawn_boss(color: int, col: int) -> Enemy:
+# Boss spawn — caller supplies realm-scaled HP/damage. Used by MatchScene for
+# every S5 boss and the R5S3 mini-boss.
+func spawn_boss(color: int, col: int, realm_num: int = 1, stage_num: int = 5,
+		hp_override: int = 0, dmg_override: int = 0) -> Enemy:
 	col = clamp(col, 0, COLS - 1)
 	if enemy_scene == null:
 		return null
 	var e: Enemy = enemy_scene.instantiate()
 	e.color = color
 	e.lane_col = col
-	# Match wave-enemy entry: drop in from near the top of the device.
 	e.lane_row = ENEMY_SPAWN_ROW
 	e.lane_ref = self
 	e.position = Vector2(col * CELL_W + CELL_W * 0.5,
 		float(ENEMY_SPAWN_ROW) * CELL_H + CELL_H * 0.5)
 	e.is_boss = true
-	e.stage_num = 5
-	e.boss_hp_override = GameConfig.boss_hp
-	e.boss_damage_override = GameConfig.boss_damage_on_reach
+	e.realm_num = realm_num
+	e.stage_num = stage_num
+	if hp_override > 0:
+		e.boss_hp_override = hp_override
+	else:
+		e.boss_hp_override = GameConfig.get_realm_boss_hp(realm_num)
+	if dmg_override > 0:
+		e.boss_damage_override = dmg_override
+	else:
+		e.boss_damage_override = GameConfig.get_realm_boss_damage(realm_num)
 	add_child(e)
 	_enemies.append(e)
 	e.reached_cannon.connect(_on_enemy_reached_cannon)
@@ -445,9 +456,9 @@ func spawn_boss(color: int, col: int) -> Enemy:
 
 # V8 §3.6: scripted Phase 2 wave spawner. wave_index is the cumulative enemy
 # index across the wave (0-based), used for round-robin column assignment + telemetry.
-# `variant` is "walker" | "runner" | "brute" — see combat-design.md §3.2.
-# `stage_num` lets the enemy apply per-stage HP/dmg scalars (combat-design.md §3.3).
-func spawn_wave_enemy(color: int, col: int, wave_index: int, variant: String = "walker", stage_num: int = 1) -> void:
+# `variant`: walker|runner|brute|shielder|healer|accelerator|phaser (§3.10.5)
+# `realm_num` + `stage_num` drive scaling (§3.10.4).
+func spawn_wave_enemy(color: int, col: int, wave_index: int, variant: String = "walker", stage_num: int = 1, realm_num: int = 1) -> void:
 	col = clamp(col, 0, COLS - 1)
 	if enemy_scene == null:
 		Telemetry.log_enemy_spawn(0, color, col, 0, wave_index)
@@ -456,6 +467,7 @@ func spawn_wave_enemy(color: int, col: int, wave_index: int, variant: String = "
 	e.color = color
 	e.lane_col = col
 	e.variant = variant
+	e.realm_num = realm_num
 	e.stage_num = stage_num
 	# Spawn near the top of the device, well above the cluster, then march down
 	# through the cluster area to the spawn line (where heroes wait at row 0).
@@ -556,6 +568,63 @@ func find_target_yellow(hero: Hero) -> Enemy:
 	if right == null: return left
 	# Pick the one furthest up
 	return left if left.lane_row < right.lane_row else right
+
+# Druid (GREEN, §8.4) — mid-range cone like Fire Knight but wider and longer.
+# Picks the enemy nearest to row 0 (about to cross) within col_radius and reach.
+func find_target_green(hero: Hero) -> Enemy:
+	var best: Enemy = null
+	var best_row := -9999
+	var max_rows_up: int = GameConfig.green_reach_rows
+	var col_span: int = GameConfig.green_col_radius
+	for e in _enemies:
+		if e == null or not is_instance_valid(e): continue
+		if abs(e.lane_col - hero.lane_col) > col_span: continue
+		if e.lane_row > 0 or e.lane_row < -max_rows_up: continue
+		if e.lane_row > best_row:
+			best = e; best_row = e.lane_row
+		elif e.lane_row == best_row and best != null and e.hp < best.hp:
+			best = e
+	return best
+
+# Wizard (PURPLE, §8.6) — full-column snipe like Archer (target picker shared).
+func find_target_purple(hero: Hero) -> Enemy:
+	var max_rows_up: int = GameConfig.purple_reach_rows
+	var best: Enemy = _scan_column(hero.lane_col, max_rows_up)
+	if best != null: return best
+	var left: Enemy = _scan_column(hero.lane_col - 1, max_rows_up)
+	var right: Enemy = _scan_column(hero.lane_col + 1, max_rows_up)
+	if left == null:  return right
+	if right == null: return left
+	return left if left.lane_row < right.lane_row else right
+
+# Druid chain heal — finds N nearest wounded allied heroes (excluding caster)
+# and tops them up. Each healed hero gets capped at heal_per_hero_cap_per_sec.
+func druid_chain_heal(caster: Hero) -> int:
+	var amount: int = GameConfig.green_chain_heal_amount
+	var max_targets: int = GameConfig.green_chain_heal_targets
+	var cap: int = GameConfig.green_heal_per_hero_cap_per_sec
+	# Find heroes by distance.
+	var candidates: Array = []
+	for r in ROWS:
+		for c in COLS:
+			var h: Hero = _heroes_by_cell[r][c]
+			if h == null or not is_instance_valid(h): continue
+			if h == caster: continue
+			# Track wounded heroes only — heroes at full HP gain nothing.
+			if h.hp >= h.max_total_hp(): continue
+			candidates.append({"h": h, "d": (h.position - caster.position).length_squared()})
+	candidates.sort_custom(func(a, b): return a.d < b.d)
+	var healed: int = 0
+	for entry in candidates:
+		if healed >= max_targets: break
+		var h: Hero = entry.h
+		if not is_instance_valid(h): continue
+		var ticked: int = h.try_heal(amount, cap)
+		if ticked > 0:
+			Vfx.floating_badge(self, h.position + Vector2(0, -36),
+				"+%d" % ticked, Color(0.45, 1.0, 0.55))
+		healed += 1
+	return healed
 
 func _scan_column(col: int, max_rows_up: int) -> Enemy:
 	if col < 0 or col >= COLS: return null

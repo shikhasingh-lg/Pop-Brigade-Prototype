@@ -1,0 +1,91 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/RealmComplete.gd" id="1_realm_complete"]
+
+[node name="RealmComplete" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_realm_complete")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 0
+offset_right = 720.0
+offset_bottom = 1560.0
+color = Color(0.06, 0.06, 0.10, 1)
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 200.0
+offset_right = 720.0
+offset_bottom = 280.0
+theme_override_colors/font_color = Color(1.0, 0.85, 0.20, 1)
+theme_override_font_sizes/font_size = 60
+text = "REALM COMPLETE"
+horizontal_alignment = 1
+
+[node name="RealmLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 290.0
+offset_right = 720.0
+offset_bottom = 360.0
+theme_override_colors/font_color = Color(1, 0.95, 0.85, 1)
+theme_override_font_sizes/font_size = 36
+text = ""
+horizontal_alignment = 1
+
+[node name="Stars" type="Label" parent="."]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 480.0
+offset_right = 720.0
+offset_bottom = 580.0
+theme_override_colors/font_color = Color(1.0, 0.85, 0.20, 1)
+theme_override_font_sizes/font_size = 56
+text = ""
+horizontal_alignment = 1
+
+[node name="StarsCount" type="Label" parent="."]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 580.0
+offset_right = 720.0
+offset_bottom = 630.0
+theme_override_colors/font_color = Color(0.85, 0.85, 0.90, 1)
+theme_override_font_sizes/font_size = 28
+text = ""
+horizontal_alignment = 1
+
+[node name="NextRealmLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 760.0
+offset_right = 720.0
+offset_bottom = 830.0
+theme_override_colors/font_color = Color(0.95, 1.0, 0.65, 1)
+theme_override_font_sizes/font_size = 30
+text = ""
+horizontal_alignment = 1
+
+[node name="RewardLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 900.0
+offset_right = 720.0
+offset_bottom = 950.0
+theme_override_colors/font_color = Color(0.75, 0.75, 0.80, 1)
+theme_override_font_sizes/font_size = 22
+text = ""
+horizontal_alignment = 1
+
+[node name="ContinueButton" type="Button" parent="."]
+layout_mode = 0
+offset_left = 180.0
+offset_top = 1300.0
+offset_right = 540.0
+offset_bottom = 1420.0
+theme_override_font_sizes/font_size = 48
+text = "CONTINUE"

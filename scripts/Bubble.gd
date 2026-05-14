@@ -44,6 +44,14 @@ const TOP_CENTER_Y := TOP_BOUND_Y + BUBBLE_RADIUS
 
 var _attaching: bool = false
 
+# Hero-bubble visual treatment — gold halo + ring + slow pulse so they read
+# as "special" against the regular cluster regardless of source art.
+const HERO_RING_COLOR := Color(1.0, 0.85, 0.25, 1.0)
+const HERO_RING_WIDTH := 4.0
+const HERO_GLOW_EXTRA_PX := 10.0
+const HERO_PULSE_HZ := 0.7  # cycles/sec
+var _hero_pulse_t: float = 0.0
+
 func _ready() -> void:
 	_apply_color()
 	# The bubble is an Area2D for editor-visible collision radius, but shot attach
@@ -51,6 +59,7 @@ func _ready() -> void:
 	# made near-wall shots feel random because they could disagree with the preview.
 	monitoring = false
 	area_entered.connect(_on_area_entered)
+	set_process(is_hero_bubble)
 
 func set_color(c: int) -> void:
 	color = c
@@ -66,12 +75,43 @@ func _apply_color() -> void:
 func set_hero_bubble(flag: bool) -> void:
 	is_hero_bubble = flag
 	_apply_color()
+	set_process(flag)
+
+func _process(delta: float) -> void:
+	# Only ticks when is_hero_bubble (gated via set_process in _ready/set_hero_bubble).
+	_hero_pulse_t += delta
+	queue_redraw()
 
 func _draw() -> void:
 	if _texture == null: return
 	var half: float = BUBBLE_RADIUS * _VISUAL_OVERSIZE
 	var rect := Rect2(Vector2(-half, -half), Vector2(half * 2.0, half * 2.0))
+	if is_hero_bubble:
+		# Pulse 0..1 over time; ring + soft outer glow underneath the texture.
+		var pulse: float = (sin(_hero_pulse_t * TAU * HERO_PULSE_HZ) + 1.0) * 0.5
+		var ring_alpha: float = lerp(0.55, 0.95, pulse)
+		var glow_alpha: float = lerp(0.18, 0.40, pulse)
+		var glow_r: float = BUBBLE_RADIUS + HERO_GLOW_EXTRA_PX + 3.0 * pulse
+		draw_circle(Vector2.ZERO, glow_r,
+			Color(HERO_RING_COLOR.r, HERO_RING_COLOR.g, HERO_RING_COLOR.b, glow_alpha))
+		draw_arc(Vector2.ZERO, BUBBLE_RADIUS + 2.0, 0.0, TAU, 32,
+			Color(HERO_RING_COLOR.r, HERO_RING_COLOR.g, HERO_RING_COLOR.b, ring_alpha),
+			HERO_RING_WIDTH, true)
 	draw_texture_rect(_texture, rect, false, _fill_color)
+	if is_hero_bubble:
+		# Small gold star top-right so hero status reads even when the ring is occluded.
+		_draw_hero_star(Vector2(BUBBLE_RADIUS * 0.55, -BUBBLE_RADIUS * 0.55), 7.0)
+
+func _draw_hero_star(c: Vector2, r: float) -> void:
+	var pts := PackedVector2Array()
+	var n: int = 5
+	for i in range(n * 2):
+		var ang: float = -PI * 0.5 + i * PI / float(n)
+		var rr: float = r if i % 2 == 0 else r * 0.45
+		pts.append(c + Vector2(cos(ang), sin(ang)) * rr)
+	# Dark outline first so the star reads on any background.
+	draw_polyline(pts + PackedVector2Array([pts[0]]), Color(0, 0, 0, 0.6), 2.0, true)
+	draw_colored_polygon(pts, HERO_RING_COLOR)
 
 # Launch this bubble from a global position with velocity, aimed at a Cluster.
 # Caller must add the bubble to the scene tree first; this just sets state.

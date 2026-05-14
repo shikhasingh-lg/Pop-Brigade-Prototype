@@ -6,16 +6,24 @@ extends Node2D
 
 signal died(hero_id: int, color: int, tier: String, lifetime_ms: int, damage_total: int)
 
-@export_enum("Red", "Blue", "Yellow") var color: int = 0
+@export_enum("Red", "Blue", "Yellow", "Green", "Purple") var color: int = 0
 @export var tier:  String = "bronze"  # "bronze" | "silver" | "gold"
 @export var lane_col: int = 0
 @export var lane_row: int = 0
 
 var hp: int = 100
+var max_hp: int = 100
 var damage: int = 10
 var range_cells: int = 3
 var fire_rate_sec: float = 1.0
-var lane_ref: Lane = null  # injected by Lane on spawn
+var lane_ref: Lane = null
+# §8.4 Druid per-second heal cap accounting (resets each game-second).
+var _heal_received_this_sec: int = 0
+var _heal_window_t: float = 0.0
+# §8.3 Storm Tyrant electrified column multiplier (set by MatchScene zap).
+var damage_taken_mult: float = 1.0
+# §8.6 Wizard arcane burst — every Nth attack does AOE.
+var _wizard_attack_count: int = 0
 
 var _fire_timer: float = 0.0
 var _breathe_timer: float = 0.0
@@ -61,14 +69,16 @@ func _apply_tier_stats() -> void:
 		"bronze": hp = GameConfig.bronze_hp; damage = GameConfig.bronze_dmg
 		"silver": hp = GameConfig.silver_hp; damage = GameConfig.silver_dmg
 		"gold":   hp = GameConfig.gold_hp;   damage = GameConfig.gold_dmg
-	# §4.2 boons: global HP / damage multipliers (Iron Skin, Heavy Shot, Sharp Steel).
-	# Damage feeds damage_mult_global so it stacks cleanly with color frenzy.
+	# §3.10.6 playtest-mode level multiplier (stand-in for hero leveling).
+	var level_mult: float = GameConfig.hero_level_mult()
+	hp = int(round(float(hp) * level_mult))
+	damage = int(round(float(damage) * level_mult))
+	# §4.2 boons.
 	hp = int(round(float(hp) * RunState.boon_global_hp_mult))
 	damage_mult_global *= RunState.boon_global_dmg_mult
+	max_hp = hp
 
 func _apply_class_stats() -> void:
-	# Per-class fire rate. Range is encoded in Lane's class-specific pickers
-	# (combat-design.md §2.1); we keep range_cells for back-compat / telemetry only.
 	match color:
 		GameConfig.BubbleColor.RED:
 			fire_rate_sec = GameConfig.red_fire_rate_sec
@@ -79,7 +89,12 @@ func _apply_class_stats() -> void:
 		GameConfig.BubbleColor.YELLOW:
 			fire_rate_sec = GameConfig.yellow_fire_rate_sec
 			range_cells = GameConfig.yellow_reach_rows
-	# §4.2 boon: Quick Feet — divide fire rate by atk-speed multiplier.
+		GameConfig.BubbleColor.GREEN:
+			fire_rate_sec = GameConfig.green_fire_rate_sec
+			range_cells = GameConfig.green_reach_rows
+		GameConfig.BubbleColor.PURPLE:
+			fire_rate_sec = GameConfig.purple_fire_rate_sec
+			range_cells = GameConfig.purple_reach_rows
 	if RunState.boon_global_atk_speed_mult > 0.0:
 		fire_rate_sec = fire_rate_sec / RunState.boon_global_atk_speed_mult
 
@@ -184,6 +199,11 @@ func _star_points(size: float) -> PackedVector2Array:
 func _process(delta: float) -> void:
 	_fire_timer += delta
 	_breathe_timer += delta
+	# Druid heal-cap window resets every game-second.
+	if _heal_window_t > 0.0:
+		_heal_window_t -= delta
+		if _heal_window_t <= 0.0:
+			_heal_received_this_sec = 0
 	# Idle breathe — ~1Hz vertical bob on the sprite. Keeps heroes feeling alive
 	# during Phase 1 (no firing, no enemies). Drives sprite.offset so it doesn't
 	# fight any future knockback / scale tweens on the parent.
@@ -196,13 +216,13 @@ func _process(delta: float) -> void:
 		_try_fire()
 
 func _try_fire() -> void:
-	# §3.5: idle in Phase 1; combat only when MatchScene flips lane.combat_enabled
-	# on _enter_phase_2. Cheaper than a per-frame phase lookup on MatchScene.
 	if lane_ref == null or not lane_ref.combat_enabled: return
 	match color:
 		GameConfig.BubbleColor.RED:    _fire_red()
 		GameConfig.BubbleColor.BLUE:   _fire_blue()
 		GameConfig.BubbleColor.YELLOW: _fire_yellow()
+		GameConfig.BubbleColor.GREEN:  _fire_green()
+		GameConfig.BubbleColor.PURPLE: _fire_purple()
 
 # Final per-hit damage including frenzy + class boon + color counter +
 # Berserker Rage (§4.2 boon: 2× dmg while below 30% HP).
@@ -219,12 +239,10 @@ func _damage_against(target: Enemy, class_dmg_mult: float) -> int:
 	return dealt
 
 func _max_hp() -> int:
-	var base: int
-	match tier:
-		"silver": base = GameConfig.silver_hp
-		"gold":   base = GameConfig.gold_hp
-		_:        base = GameConfig.bronze_hp
-	return int(round(float(base) * RunState.boon_global_hp_mult))
+	return max_hp
+
+func max_total_hp() -> int:
+	return max_hp
 
 func _hp_ratio() -> float:
 	var m: int = _max_hp()
@@ -713,6 +731,9 @@ func _spawn_damage_number(local_pos: Vector2, amount: int, is_crit: bool) -> voi
 
 
 func take_damage(amount: int) -> void:
+	# §8.3 Storm Tyrant electrified column multiplier.
+	if damage_taken_mult != 1.0:
+		amount = int(round(float(amount) * damage_taken_mult))
 	hp -= amount
 	if hp <= 0:
 		# Death burst parented on Lane so it outlives our queue_free().
@@ -728,3 +749,95 @@ func apply_frenzy_buff() -> void:
 	damage_mult_global = 1.0 + GameConfig.color_frenzy_buff_pct
 	var t := get_tree().create_timer(GameConfig.color_frenzy_duration_sec)
 	t.timeout.connect(func(): damage_mult_global = 1.0)
+
+# ============================================================
+# §8.4 Druid (GREEN) — basic attack + chain heal on allies
+# §8.6 Wizard (PURPLE) — full-lane shot + AOE every Nth hit
+# ============================================================
+func _fire_green() -> void:
+	if lane_ref == null: return
+	var target: Enemy = lane_ref.find_target_green(self)
+	if target == null:
+		# No enemy to hit, but still cast a heal pulse if any ally needs it.
+		lane_ref.druid_chain_heal(self)
+		return
+	var dmg: int = _damage_against(target, GameConfig.green_dmg_mult)
+	var is_crit: bool = target.color == color
+	var target_pos: Vector2 = target.position
+	_vfx_red_wedge((target.global_position - global_position).normalized(),
+		95.0, 30.0, Color(0.45, 1.0, 0.55, 0.45), 0.18)
+	target.take_damage(dmg, color)
+	_spawn_damage_number(target_pos, dmg, is_crit)
+	if is_crit:
+		Vfx.color_counter_badge(lane_ref, target_pos, Vfx.color_for_bubble(color))
+	_damage_dealt_total += dmg
+	Telemetry.log_hero_attack(_hero_id, target.get_instance_id(), dmg)
+	# Chain heal — fires on every attack tick (capped per ally per game-second).
+	lane_ref.druid_chain_heal(self)
+
+func _fire_purple() -> void:
+	if lane_ref == null: return
+	var target: Enemy = lane_ref.find_target_purple(self)
+	if target == null: return
+	var dmg: int = _damage_against(target, GameConfig.purple_dmg_mult)
+	var target_pos: Vector2 = target.position
+	# Big AOE smash visual.
+	_vfx_red_wedge((target.global_position - global_position).normalized(),
+		160.0, 60.0, Color(0.75, 0.45, 0.95, 0.40), 0.22)
+	target.take_damage(dmg, color)
+	_spawn_damage_number(target_pos, dmg, target.color == color)
+	_damage_dealt_total += dmg
+	Telemetry.log_hero_attack(_hero_id, target.get_instance_id(), dmg)
+	_wizard_attack_count += 1
+	if _wizard_attack_count >= GameConfig.purple_burst_every_n_hits:
+		_wizard_attack_count = 0
+		_wizard_arcane_burst(target)
+
+func _wizard_arcane_burst(primary: Enemy) -> void:
+	if lane_ref == null or not is_instance_valid(primary): return
+	var splash: Array = lane_ref.enemies_in_aoe(primary.position,
+		GameConfig.purple_aoe_radius_cells)
+	# Burst halo VFX.
+	var ring := Polygon2D.new()
+	ring.color = Color(0.85, 0.5, 1.0, 0.55)
+	var pts := PackedVector2Array()
+	var radius: float = GameConfig.purple_aoe_radius_cells * Lane.CELL_H
+	for i in 24:
+		var a: float = TAU * float(i) / 24.0
+		pts.append(Vector2(cos(a), sin(a)) * radius)
+	ring.polygon = pts
+	lane_ref.add_child(ring)
+	ring.position = primary.position
+	ring.scale = Vector2(0.15, 0.15)
+	var tw := ring.create_tween()
+	tw.tween_property(ring, "scale", Vector2(1.1, 1.1), 0.22) \
+		.set_trans(Tween.TRANS_SINE)
+	tw.parallel().tween_property(ring, "modulate:a", 0.0, 0.28)
+	tw.tween_callback(func():
+		if is_instance_valid(ring): ring.queue_free())
+	for e in splash:
+		if e == null or not is_instance_valid(e): continue
+		if e == primary: continue
+		var d: int = _damage_against(e, GameConfig.purple_dmg_mult)
+		e.take_damage(d, color)
+		_spawn_damage_number(e.position, d, e.color == color)
+		_damage_dealt_total += d
+	Vfx.floating_badge(lane_ref, position + Vector2(0, -60),
+		"ARCANE!", Color(0.85, 0.5, 1.0))
+
+# Druid uses this from Lane.druid_chain_heal. Returns actual amount healed
+# (after per-second cap is applied so we never out-heal cap).
+func try_heal(amount: int, cap_per_sec: int) -> int:
+	if hp >= max_hp: return 0
+	# Reset accumulator every game-second.
+	if _heal_window_t <= 0.0:
+		_heal_received_this_sec = 0
+		_heal_window_t = 1.0
+	var remaining_cap: int = max(0, cap_per_sec - _heal_received_this_sec)
+	if remaining_cap <= 0: return 0
+	var space: int = max_hp - hp
+	var ticked: int = min(amount, min(remaining_cap, space))
+	if ticked <= 0: return 0
+	hp += ticked
+	_heal_received_this_sec += ticked
+	return ticked

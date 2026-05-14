@@ -46,10 +46,19 @@ const ROSTER := {
 	"green-spore": {
 		"name":      "Mossy",
 		"archetype": "Green Spore",
-		"role":      "Healer-minion (v2)",
+		"role":      "Healer-minion (R3+)",
 		"portrait":  "res://assets/enemies/green-spore/green-spore.png",
-		"color":     -1,      # v2 GREEN reserved
-		"v1_active": false,
+		"color":     3,       # BubbleColor.GREEN
+		"v1_active": true,
+		"is_boss":   false,
+	},
+	"purple-wisp": {
+		"name":      "Phaser",
+		"archetype": "Purple Wisp",
+		"role":      "Row-skipping ghost (R5+)",
+		"portrait":  "res://assets/enemies/purple-wisp/purple-wisp.png",
+		"color":     4,       # BubbleColor.PURPLE
+		"v1_active": true,
 		"is_boss":   false,
 	},
 	"goop-king": {
@@ -89,7 +98,10 @@ func get_portrait(slug: String) -> Texture2D:
 	var entry := get_entry(slug)
 	if entry.is_empty():
 		return null
-	return load(entry["portrait"]) as Texture2D
+	var path: String = entry["portrait"]
+	if not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
 
 func get_cutout(slug: String) -> Texture2D:
 	var entry := get_entry(slug)
@@ -98,7 +110,10 @@ func get_cutout(slug: String) -> Texture2D:
 	var path: String = (entry["portrait"] as String).replace(".png", "-cutout.png")
 	if ResourceLoader.exists(path):
 		return load(path) as Texture2D
-	return load(entry["portrait"]) as Texture2D
+	var portrait: String = entry["portrait"]
+	if ResourceLoader.exists(portrait):
+		return load(portrait) as Texture2D
+	return null
 
 func get_for_color(color: int) -> Dictionary:
 	for slug in walker_slugs():

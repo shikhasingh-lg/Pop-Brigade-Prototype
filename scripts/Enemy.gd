@@ -1,5 +1,5 @@
 # Enemy — single enemy unit marching down the lane.
-# Design spec §3.6. Spawned by Cluster when bubbles cross spawn line.
+# Design spec §3.6 + §3.10 + §8.x variants.
 
 class_name Enemy
 extends Node2D
@@ -7,22 +7,32 @@ extends Node2D
 signal reached_cannon(enemy_id: int, color: int, hp_damage: int)
 signal died(enemy_id: int, color: int, killed_by_color: int, lifetime_ms: int)
 
-@export_enum("Red", "Blue", "Yellow") var color: int = 0
+@export_enum("Red", "Blue", "Yellow", "Green", "Purple") var color: int = 0
 @export var lane_col: int = 0
 var lane_row: int = 0
-var lane_ref: Lane = null  # injected by Lane on spawn
+var lane_ref: Lane = null
 
-# Variant tag — "walker" (default), "runner", "brute". See combat-design.md §3.2.
+# Variant tag: "walker"|"runner"|"brute"|"shielder"|"healer"|"accelerator"|"phaser".
 var variant: String = "walker"
-# Stage number — used to apply per-stage HP/dmg scalars (combat-design.md §3.3).
-# Lane sets this BEFORE _ready().
+# Realm + stage drive scaling (§3.10.4). Lane sets these BEFORE _ready().
+var realm_num: int = 1
 var stage_num: int = 1
 
-# §4.3 Stage 5 boss flag. Lane sets these BEFORE _ready() so _apply_color_stats
-# can use boss HP / damage instead of the color-baseline values.
+# §4.3 boss flag.
 var is_boss: bool = false
 var boss_hp_override: int = 0
 var boss_damage_override: int = 0
+
+# §8.x — variant state
+var shield_hits_remaining: int = 0
+var is_healer: bool = false
+var is_accelerator: bool = false
+var is_phaser: bool = false
+var _heal_tick_accum: float = 0.0
+var _phase_skip_timer: float = 0.0
+# Speed-buff (Accelerator legacy) — applied externally via apply_speed_buff().
+var _speed_buff_factor: float = 1.0
+var _speed_buff_timer: float = 0.0
 
 var hp: int = 50
 var max_hp: int = 50
@@ -88,9 +98,17 @@ func _apply_color_stats() -> void:
 			base_hp = float(GameConfig.yellow_enemy_hp)
 			base_speed = GameConfig.yellow_enemy_speed_sec_per_cell
 			base_dmg = float(GameConfig.yellow_enemy_damage_on_reach)
+		GameConfig.BubbleColor.GREEN:
+			base_hp = float(GameConfig.green_enemy_hp)
+			base_speed = GameConfig.green_enemy_speed_sec_per_cell
+			base_dmg = float(GameConfig.green_enemy_damage_on_reach)
+		GameConfig.BubbleColor.PURPLE:
+			base_hp = float(GameConfig.purple_enemy_hp)
+			base_speed = GameConfig.purple_enemy_speed_sec_per_cell
+			base_dmg = float(GameConfig.purple_enemy_damage_on_reach)
 		_:
 			base_hp = 50.0; base_speed = 1.0; base_dmg = 10.0
-	# Variant multipliers (combat-design.md §3.2)
+	# Variant multipliers (§3.2 + §3.10.5).
 	match variant:
 		"runner":
 			base_hp *= GameConfig.runner_hp_mult
@@ -99,13 +117,28 @@ func _apply_color_stats() -> void:
 			base_hp *= GameConfig.brute_hp_mult
 			base_speed *= GameConfig.brute_speed_mult
 			base_dmg *= GameConfig.brute_dmg_mult
+		"shielder":
+			base_hp *= GameConfig.shielder_hp_mult
+			base_speed *= GameConfig.shielder_speed_mult
+			shield_hits_remaining = GameConfig.shielder_shield_hits
+		"healer":
+			base_hp *= GameConfig.healer_hp_mult
+			is_healer = true
+		"accelerator":
+			is_accelerator = true
+		"phaser":
+			is_phaser = true
+			_phase_skip_timer = randf_range(
+				GameConfig.phaser_phase_interval_min_sec,
+				GameConfig.phaser_phase_interval_max_sec
+			)
 		_:
-			pass  # walker = baseline
-	# Per-stage scalars (combat-design.md §3.3)
-	var stage_idx: int = clamp(stage_num - 1, 0, GameConfig.stage_hp_mults.size() - 1)
-	base_hp *= GameConfig.stage_hp_mults[stage_idx]
-	base_dmg *= GameConfig.stage_dmg_mults[stage_idx]
-	# §4.3 boss override (Stage 5 only): tougher + slower + harder-hitting.
+			pass
+	# §3.10.4 realm + stage scalars.
+	base_hp *= GameConfig.get_realm_hp_mult(realm_num) * GameConfig.get_stage_hp_mult(stage_num)
+	base_dmg *= GameConfig.get_realm_dmg_mult(realm_num) * GameConfig.get_stage_dmg_mult(stage_num)
+	base_speed *= GameConfig.get_realm_speed_mult(realm_num)
+	# Boss overrides (any realm's S5 path + R5S3 mini-boss).
 	if is_boss:
 		if boss_hp_override > 0: base_hp = float(boss_hp_override)
 		if boss_damage_override > 0: base_dmg = float(boss_damage_override)
@@ -140,15 +173,47 @@ func _apply_visual() -> void:
 	# Variant visual cues (on top of texture scale).
 	match variant:
 		"runner":
-			# Slightly smaller silhouette + brighter tint to read as quick & nimble.
 			scale = Vector2(0.85, 0.85)
 			_sprite.modulate = Color(1.15, 1.15, 1.10, 1.0)
 		"brute":
-			# Bigger silhouette + darker tint to read as a tank.
 			scale = Vector2(1.4, 1.4)
 			_sprite.modulate = Color(0.75, 0.75, 0.85, 1.0)
+		"shielder":
+			# Adds a translucent cyan halo behind the sprite per shield charge.
+			_decorate_shielder()
+		"healer":
+			# Green wisp halo + brighter tint.
+			_decorate_healer()
+		"accelerator":
+			# Red speed trail tint.
+			_sprite.modulate = Color(1.25, 0.85, 0.85, 1.0)
+		"phaser":
+			# Ghostly — slightly transparent + purple tint.
+			_sprite.modulate = Color(1.1, 0.85, 1.2, 0.78)
 		_:
 			pass
+
+func _decorate_shielder() -> void:
+	var halo := ColorRect.new()
+	halo.color = Color(0.4, 0.85, 1.0, 0.32)
+	halo.size = Vector2(80, 80)
+	halo.position = Vector2(-40, -40)
+	halo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	halo.z_index = -1
+	add_child(halo)
+	move_child(halo, 0)
+
+func _decorate_healer() -> void:
+	var wisp := ColorRect.new()
+	wisp.color = Color(0.35, 1.0, 0.45, 0.30)
+	wisp.size = Vector2(72, 72)
+	wisp.position = Vector2(-36, -36)
+	wisp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wisp.z_index = -1
+	add_child(wisp)
+	move_child(wisp, 0)
+	if _sprite != null:
+		_sprite.modulate = Color(0.85, 1.20, 0.85, 1.0)
 
 func _process(delta: float) -> void:
 	if _reached: return
@@ -156,12 +221,72 @@ func _process(delta: float) -> void:
 		_slow_timer -= delta
 		if _slow_timer <= 0:
 			_slow_factor = 1.0
-	_move_timer += delta * _slow_factor
-	# Enemies keep the fast drop-in pace after crossing the battle line — no
-	# slowdown at row 0. (apply_slow still works for Blue hero's debuff.)
+	# §8.5 Accelerator buff window expires.
+	if _speed_buff_timer > 0.0:
+		_speed_buff_timer -= delta
+		if _speed_buff_timer <= 0.0:
+			_speed_buff_factor = 1.0
+	# §8.4 Healer pulse: tick every 1s, heal nearest enemy within radius.
+	if is_healer and lane_ref != null:
+		_heal_tick_accum += delta
+		if _heal_tick_accum >= 1.0:
+			_heal_tick_accum = 0.0
+			_do_heal_pulse()
+	# §8.6 Phaser: random row-skip every 4-6s.
+	if is_phaser:
+		_phase_skip_timer -= delta
+		if _phase_skip_timer <= 0.0:
+			_phase_skip_timer = randf_range(
+				GameConfig.phaser_phase_interval_min_sec,
+				GameConfig.phaser_phase_interval_max_sec
+			)
+			_phase_skip()
+	_move_timer += delta * _slow_factor * _speed_buff_factor
 	if _move_timer >= Lane.ENEMY_FAST_SEC_PER_CELL:
 		_move_timer = 0.0
 		_advance_cell()
+
+func _do_heal_pulse() -> void:
+	if lane_ref == null: return
+	var heal_amount: int = GameConfig.healer_heal_per_sec
+	var radius_px: float = GameConfig.healer_radius_cells * Lane.CELL_H
+	var r_sq: float = radius_px * radius_px
+	var best: Enemy = null
+	var best_d2: float = INF
+	for e in lane_ref._enemies:
+		if e == null or not is_instance_valid(e): continue
+		if e == self: continue
+		if e.hp >= e.max_hp: continue
+		var d2: float = (e.position - position).length_squared()
+		if d2 < r_sq and d2 < best_d2:
+			best = e; best_d2 = d2
+	if best != null:
+		best.hp = min(best.max_hp, best.hp + heal_amount)
+		best._refresh_hp_bar()
+		Vfx.floating_badge(lane_ref, best.position + Vector2(0, -30),
+			"+%d" % heal_amount, Color(0.4, 1.0, 0.5))
+
+func _phase_skip() -> void:
+	# Visual flicker + skip an extra row's worth of timer.
+	if _sprite != null:
+		var orig_a: float = _sprite.modulate.a
+		var tw := _sprite.create_tween()
+		tw.tween_property(_sprite, "modulate:a", 0.25, 0.10)
+		tw.tween_property(_sprite, "modulate:a", orig_a, 0.10)
+	# Skip ahead by extra cells (immediate advance + clear movement timer so it
+	# advances again on the next tick).
+	for i in GameConfig.phaser_skip_rows:
+		if _reached: return
+		_advance_cell()
+	_move_timer = 0.0
+
+func apply_speed_buff(buff_pct: float, duration_sec: float) -> void:
+	# Bigger _speed_buff_factor = faster (it MULTIPLIES the move timer per
+	# delta so the timer hits the per-cell threshold sooner).
+	_speed_buff_factor = max(_speed_buff_factor, 1.0 + buff_pct)
+	_speed_buff_timer = max(_speed_buff_timer, duration_sec)
+	if _sprite != null:
+		_sprite.modulate = Color(1.4, 0.6, 0.6, _sprite.modulate.a)
 
 func _advance_cell() -> void:
 	lane_row += 1
@@ -183,16 +308,26 @@ func _advance_cell() -> void:
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 func take_damage(amount: int, source_color: int) -> void:
+	# §8.3 Shielder: first N hits chip the shield rather than HP. Each hit
+	# consumes 1 shield charge regardless of damage amount (per spec).
+	if shield_hits_remaining > 0:
+		shield_hits_remaining -= 1
+		Vfx.hit_flash(self)
+		if lane_ref != null:
+			var tag: String = "SHIELD" if shield_hits_remaining > 0 else "SHATTER"
+			Vfx.floating_badge(lane_ref, position + Vector2(0, -30), tag,
+				Color(0.6, 0.85, 1.0))
+		return
 	# Hit-stop on heavy or fatal hits — gated globally in Vfx.hit_stop().
-	# Heavy = ≥30% of max HP in one shot. Bosses always qualify on kill.
 	var is_heavy: bool = max_hp > 0 and amount >= int(round(float(max_hp) * 0.30))
 	var will_kill: bool = (hp - amount) <= 0
 	if is_heavy or will_kill:
 		Vfx.hit_stop()
 	hp -= amount
 	if hp <= 0:
-		# Death burst — parent on Lane (our parent), not self, so it outlives
-		# our queue_free() one line later.
+		# §8.5 Accelerator: on death, buff the next N nearby enemies.
+		if is_accelerator and lane_ref != null:
+			_trigger_accelerator_buff()
 		var burst_color: Color = Vfx.color_for_bubble(color)
 		if is_boss: burst_color = Color(1.0, 0.85, 0.4)
 		if get_parent() != null:
@@ -203,11 +338,30 @@ func take_damage(amount: int, source_color: int) -> void:
 			Time.get_ticks_msec() - _spawn_ms)
 		queue_free()
 		return
-	# Hit flash on damage that doesn't kill — covers AoE/cleave secondaries
-	# that bypass the per-target flash in Hero's attack path.
 	Vfx.hit_flash(self)
 	_apply_knockback()
 	_refresh_hp_bar()
+
+func _trigger_accelerator_buff() -> void:
+	if lane_ref == null: return
+	# Pick the N nearest alive enemies (excluding self) and apply speed buff.
+	var by_dist: Array = []
+	for e in lane_ref._enemies:
+		if e == null or not is_instance_valid(e) or e == self: continue
+		by_dist.append({"e": e, "d": (e.position - position).length_squared()})
+	by_dist.sort_custom(func(a, b): return a.d < b.d)
+	var applied: int = 0
+	for entry in by_dist:
+		if applied >= GameConfig.accelerator_buff_target_count: break
+		var target: Enemy = entry.e
+		if is_instance_valid(target):
+			target.apply_speed_buff(
+				GameConfig.accelerator_speed_buff_pct,
+				GameConfig.accelerator_speed_buff_duration_sec)
+			applied += 1
+	if lane_ref != null:
+		Vfx.floating_badge(lane_ref, position + Vector2(0, -30),
+			"SURGE!", Color(1.0, 0.5, 0.5))
 
 # Visual knockback — tween the sprite child's offset (not the enemy's position)
 # so the lane-tween that's driving cell-to-cell movement isn't fought.

@@ -1,20 +1,24 @@
 # RunState — autoload singleton holding per-run state shared across screens.
 #
-# Lives between MetaHub → Loadout → MatchScene → StageClear/StageFail → RunEnd.
-# Reset on every new run via begin_new_run(). Lifetime stats (runs_completed)
-# persist to user://run_save.json.
+# Lives between ChapterMap → StageSelect → MatchScene → StageClear/StageFail →
+# RealmComplete → ChapterMap. Reset on every new run via begin_new_run().
+# Lifetime stats (runs_completed, stage_stars) persist to user://run_save.json.
 
 extends Node
 
 const SAVE_PATH := "user://run_save.json"
+const REALM_COUNT := 5
+const STAGES_PER_REALM := 5
 
 # Lifetime (persisted)
 var runs_completed: int = 0
+# stage_stars["R{r}S{s}"] = best star count (0-3) ever achieved. Missing key = locked/unattempted.
+var stage_stars: Dictionary = {}
 
 # Per-run (reset by begin_new_run)
-var run_boons: Array[String] = []          # boon_ids picked across stages
+var realm_num: int = 1
+var run_boons: Array[String] = []
 # Heroes carried across stages. Each entry: {color: int, tier: String, hp: int, row: int, col: int}.
-# Snapshot taken at stage clear; restored at the next stage's start.
 var run_heroes: Array = []
 var run_start_ms: int = 0
 var stages_cleared: int = 0
@@ -22,13 +26,11 @@ var last_stage_reached: int = 1
 var completion: String = "in_progress"     # "win" | "fail" | "quit"
 var last_fail_reason: String = ""
 
-# Boon-derived run state — recomputed at every stage start from run_boons so
-# the values stay idempotent (no compounding across stages). See
-# RunState.recompute_boon_state() + MatchScene.start_stage.
+# Boon-derived run state — recomputed at every stage start from run_boons.
 var boon_global_dmg_mult: float = 1.0
 var boon_global_hp_mult: float = 1.0
-var boon_global_atk_speed_mult: float = 1.0       # >1 = faster (divides fire_rate_sec)
-var boon_special_proc_mult: float = 1.0           # Elemental Surge — cleave/exec/slow chance
+var boon_global_atk_speed_mult: float = 1.0
+var boon_special_proc_mult: float = 1.0
 var boon_coin_mult: float = 1.0
 var boon_berserker_rage: bool = false
 var boon_vampiric_strike: bool = false
@@ -59,7 +61,8 @@ func _ready() -> void:
 	_load()
 
 
-func begin_new_run() -> void:
+func begin_new_run(starting_realm: int = 1) -> void:
+	realm_num = clamp(starting_realm, 1, REALM_COUNT)
 	run_boons.clear()
 	run_heroes.clear()
 	run_start_ms = Time.get_ticks_msec()
@@ -75,7 +78,6 @@ func begin_new_run() -> void:
 	total_enemies_leaked = 0
 	total_frenzies = 0
 	run_max_chain = 0
-	# Reset boon one-shots so old picks from prior runs don't leak.
 	boon_first_hero_gold_pending = false
 	boon_next_hero_silver_plus_pending = false
 	boon_pending_extra_heroes_next_stage = 0
@@ -85,16 +87,9 @@ func begin_new_run() -> void:
 
 func add_boon(boon_id: String) -> void:
 	run_boons.append(boon_id)
-	# One-shot effects (extra heroes next stage, time stop, etc.) need to fire
-	# exactly once at the moment of pick, so record them now. Multiplier-type
-	# effects are recomputed deterministically at every stage start.
 	record_new_boon(boon_id)
 
 
-# Reset all boon-derived multipliers/flags to defaults and replay run_boons.
-# Idempotent — safe to call every stage start. Effects that are "one-shot"
-# (e.g. spawn 3 heroes next stage) accumulate across stages via the run_boons
-# replay but are decremented on consumption by MatchScene/Lane.
 func recompute_boon_state() -> void:
 	boon_global_dmg_mult = 1.0
 	boon_global_hp_mult = 1.0
@@ -108,8 +103,6 @@ func recompute_boon_state() -> void:
 	boon_periodic_hero_spawn = false
 	boon_chain_pop = false
 	boon_treasure_next_wave = false
-	# NOTE: pending one-shots are NOT reset here — they're set by MatchScene
-	# only on freshly added boons (see record_new_boon) so they fire once.
 	for id in run_boons:
 		var key: String = BoonDB.get_effect_key(id)
 		match key:
@@ -126,10 +119,9 @@ func recompute_boon_state() -> void:
 			"periodic_hero_spawn":   boon_periodic_hero_spawn = true
 			"cluster_chain_pop":     boon_chain_pop = true
 			"treasure_next_wave":    boon_treasure_next_wave = true
-			_: pass  # other effects applied directly on Cannon / Lane / MatchScene
+			_: pass
 
 
-# Called by MatchScene when a boon is freshly added (one-shot setup).
 func record_new_boon(boon_id: String) -> void:
 	var key: String = BoonDB.get_effect_key(boon_id)
 	match key:
@@ -161,7 +153,7 @@ func finish_run(completion_kind: String) -> void:
 	completion = completion_kind
 	if completion_kind == "win":
 		runs_completed += 1
-		_save()
+	_save()
 
 
 func total_run_ms() -> int:
@@ -169,7 +161,65 @@ func total_run_ms() -> int:
 
 
 # ============================================================
-# Persistence (only runs_completed survives across app launches)
+# §9.2 — Realm / stage unlock + star tracking
+# ============================================================
+static func key(realm: int, stage: int) -> String:
+	return "R%dS%d" % [realm, stage]
+
+
+func get_stars(realm: int, stage: int) -> int:
+	return int(stage_stars.get(key(realm, stage), 0))
+
+
+# Star awarded after a successful stage clear. Better-of-best: only upgrades.
+func award_stars(realm: int, stage: int, stars: int) -> void:
+	stars = clamp(stars, 0, 3)
+	var k := key(realm, stage)
+	var prior: int = int(stage_stars.get(k, 0))
+	if stars > prior:
+		stage_stars[k] = stars
+		_save()
+
+
+# A stage is unlocked if it is S1 of an unlocked realm, OR the prior stage in
+# the same realm has at least 1 star.
+func is_stage_unlocked(realm: int, stage: int) -> bool:
+	if not is_realm_unlocked(realm): return false
+	if stage <= 1: return true
+	return get_stars(realm, stage - 1) >= 1
+
+
+# R1 always unlocked. Rn unlocked once R(n-1)S5 has at least 1 star.
+func is_realm_unlocked(realm: int) -> bool:
+	if realm <= 1: return true
+	return get_stars(realm - 1, STAGES_PER_REALM) >= 1
+
+
+func total_stars_in_realm(realm: int) -> int:
+	var total := 0
+	for s in range(1, STAGES_PER_REALM + 1):
+		total += get_stars(realm, s)
+	return total
+
+
+# True after the first 1-star clear of R{realm}S5. Used to gate the
+# RealmComplete reveal animation.
+func is_realm_completed(realm: int) -> bool:
+	return get_stars(realm, STAGES_PER_REALM) >= 1
+
+
+# Compute star count from final stage stats (§8.7).
+# 1★ clear, 2★ clear + ≥50% HP, 3★ ≥75% HP AND ≥30% moves unused.
+static func compute_stars(player_hp_pct: float, moves_unused_pct: float) -> int:
+	if player_hp_pct >= 0.75 and moves_unused_pct >= 0.30:
+		return 3
+	if player_hp_pct >= 0.50:
+		return 2
+	return 1
+
+
+# ============================================================
+# Persistence
 # ============================================================
 func _load() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -181,6 +231,11 @@ func _load() -> void:
 	var data: Variant = JSON.parse_string(raw)
 	if typeof(data) == TYPE_DICTIONARY:
 		runs_completed = int(data.get("runs_completed", 0))
+		var stars_raw: Variant = data.get("stage_stars", {})
+		if typeof(stars_raw) == TYPE_DICTIONARY:
+			stage_stars.clear()
+			for k in stars_raw:
+				stage_stars[String(k)] = int(stars_raw[k])
 
 
 func _save() -> void:
@@ -188,5 +243,8 @@ func _save() -> void:
 	if f == null:
 		push_warning("RunState: failed to write %s" % SAVE_PATH)
 		return
-	f.store_string(JSON.stringify({ "runs_completed": runs_completed }))
+	f.store_string(JSON.stringify({
+		"runs_completed": runs_completed,
+		"stage_stars":    stage_stars,
+	}))
 	f.close()

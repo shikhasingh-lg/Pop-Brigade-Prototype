@@ -37,11 +37,15 @@ const BASE_WALL_HURT: Color = Color(0.45, 0.20, 0.12, 1)   # at 0 HP
 
 enum Phase { PHASE_1, TRANSITION, PHASE_2, STAGE_CLEAR, STAGE_FAIL }
 
-# Set by Main router before _ready() so we boot into the right stage.
+# Set by Main router before _ready() so we boot into the right stage/realm.
 var start_stage_num: int = 1
+var start_realm_num: int = 1
 
+var realm_num: int = 1
 var stage_num: int = 1
 var player_hp: int = 100
+var _max_player_hp: int = 100
+var _start_moves: int = 0    # for star calc — moves unused fraction
 var _pause_overlay: Control = null
 var stage_start_ms: int = 0
 var _stage_active: bool = false
@@ -84,6 +88,38 @@ var _frenzy_buffed_colors: Dictionary = {}
 # (not by the wave-comp array) so wave-comp telemetry stays a pure walker list.
 var _boss_pending: bool = false
 var _boss_alive: bool = false
+var _boss_ref: Enemy = null
+
+# §8.6 — Voidcrown Twins phase B (R5S5).
+var _twin_phase_b_spawned: bool = false
+var _phase_b_alive: bool = false
+var _phase_b_ref: Enemy = null
+
+# Mini-boss (R5S3 Echo of Voidcrown).
+var _mini_boss_pending: bool = false
+var _mini_boss_alive: bool = false
+var _mini_boss_ref: Enemy = null
+var _echo_phaser_timer: float = 0.0
+
+# Realm gimmick timers — cluster shake (R2 S3-5) + cluster descent (R4 all stages, R5 S3-5).
+var _shake_timer: float = 0.0
+var _descent_timer: float = 0.0
+var _descent_period: float = 0.0       # 0 = no descent this stage
+var _shake_enabled: bool = false
+
+# Boss mechanic timers.
+var _zap_telegraph_timer: float = 0.0  # Storm Tyrant
+var _zap_active_timer: float = 0.0
+var _zap_column: int = -1
+var _zap_overlay: ColorRect = null
+var _warden_vine_timer: float = 0.0
+var _warden_vines_alive: int = 0
+var _ravager_slam_timer: float = 0.0
+var _ravager_telegraph: ColorRect = null
+var _twins_lumen_beam_timer: float = 0.0
+var _twins_lumen_beam_col: int = -1
+var _twins_lumen_beam_telegraph_t: float = 0.0
+var _twins_umbra_swap_timer: float = 0.0
 
 # §4.2 Reinforcements boon: every 30 s of Phase 2, +1 hero.
 const PERIODIC_HERO_INTERVAL_SEC: float = 30.0
@@ -148,8 +184,8 @@ func _ready() -> void:
 	if cannon:
 		cannon.bubble_fired.connect(_on_bubble_fired)
 	_setup_pause_overlay()
-	# Boot into start_stage_num (set by Main router) with the run's accumulated boons.
-	start_stage(start_stage_num, RunState.run_boons)
+	# Boot into start_realm_num/start_stage_num (set by Main router) with run boons.
+	start_stage(start_stage_num, RunState.run_boons, start_realm_num)
 
 # Debug stage controls (combat-design.md test loop):
 #   F2 → next stage (wrap 5 → 1)
@@ -213,25 +249,44 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var key: int = event.keycode
 	if key == KEY_F2:
-		var nxt: int = stage_num + 1
-		if nxt > 5: nxt = 1
-		_debug_jump_to_stage(nxt)
+		# Advance to next stage; on S5 wrap to next realm's S1.
+		var nxt_stage: int = stage_num + 1
+		var nxt_realm: int = realm_num
+		if nxt_stage > 5:
+			nxt_stage = 1
+			nxt_realm = realm_num + 1
+			if nxt_realm > RunState.REALM_COUNT:
+				nxt_realm = 1
+		realm_num = nxt_realm
+		_debug_jump_to_stage(nxt_stage)
 	elif key == KEY_F3:
 		_debug_jump_to_stage(stage_num)
 	elif key == KEY_F4:
 		_toggle_debug_panel()
 	elif key >= KEY_1 and key <= KEY_5:
 		_debug_jump_to_stage(key - KEY_0)
+	elif key == KEY_F5 or key == KEY_F6 or key == KEY_F7 or key == KEY_F8 or key == KEY_F9:
+		# F5..F9 → jump to R1..R5 S1.
+		_debug_jump_to_realm(key - KEY_F4)
 
 func _debug_jump_to_stage(num: int) -> void:
 	num = clamp(num, 1, 5)
-	print("[Debug] Jumping to stage %d" % num)
+	print("[Debug] Jumping to R%dS%d" % [realm_num, num])
 	if lane: lane.reset()
-	start_stage(num, [])
+	start_stage(num, [], realm_num)
 
-func start_stage(num: int, run_boons: Array) -> void:
+func _debug_jump_to_realm(r: int) -> void:
+	r = clamp(r, 1, RunState.REALM_COUNT)
+	print("[Debug] Jumping to R%dS1" % r)
+	if lane: lane.reset()
+	start_stage(1, [], r)
+
+func start_stage(num: int, run_boons: Array, realm: int = 1) -> void:
 	stage_num = num
+	realm_num = clamp(realm, 1, RunState.REALM_COUNT)
+	RunState.realm_num = realm_num
 	player_hp = GameConfig.stage_start_hp
+	_max_player_hp = GameConfig.stage_start_hp
 	stage_start_ms = Time.get_ticks_msec()
 	_stage_active = true
 	_total_pops = 0
@@ -240,15 +295,42 @@ func start_stage(num: int, run_boons: Array) -> void:
 	_max_chain = 0
 	_enemies_killed = 0
 	_enemies_leaked = 0
-	_moves_remaining = GameConfig.get_stage_move_budget(num)
+	_moves_remaining = GameConfig.get_realm_move_budget(realm_num, num)
+	_start_moves = _moves_remaining
 	_no_enemy_timer = 0.0
 	_refresh_moves_label()
 	_frenzy_buffed_colors = {}
 	_boss_pending = false
 	_boss_alive = false
-	cluster.setup_for_stage(num)
+	_boss_ref = null
+	_twin_phase_b_spawned = false
+	_phase_b_alive = false
+	_phase_b_ref = null
+	_mini_boss_pending = GameConfig.realm_has_mini_boss(realm_num, num)
+	_mini_boss_alive = false
+	_mini_boss_ref = null
+	_echo_phaser_timer = 0.0
+	# Realm gimmicks: cluster shake + time-based descent (§8.3/§8.5/§8.6).
+	_shake_enabled = GameConfig.realm_has_cluster_shake(realm_num, num)
+	_shake_timer = GameConfig.cluster_shake_interval_sec if _shake_enabled else 0.0
+	_descent_period = GameConfig.realm_descent_sec_per_row(realm_num, num)
+	_descent_timer = _descent_period
+	# Boss mechanic state.
+	_zap_telegraph_timer = 0.0
+	_zap_active_timer = 0.0
+	_zap_column = -1
+	_clear_zap_overlay()
+	_warden_vine_timer = 0.0
+	_warden_vines_alive = 0
+	_ravager_slam_timer = 0.0
+	_clear_ravager_telegraph()
+	_twins_lumen_beam_timer = 0.0
+	_twins_lumen_beam_col = -1
+	_twins_lumen_beam_telegraph_t = 0.0
+	_twins_umbra_swap_timer = 0.0
+	cluster.setup_for_stage(num, realm_num)
 	_update_base_visuals()
-	hud_stage_label.text = "Stage %d/5" % num
+	hud_stage_label.text = "R%dS%d — %s" % [realm_num, num, GameConfig.realm_name(realm_num)]
 	if cannon:
 		cannon.current_stage_num = num
 	# Recompute all idempotent boon state (multipliers, flags) from the boon list,
@@ -268,7 +350,7 @@ func start_stage(num: int, run_boons: Array) -> void:
 	# §4.2 one-shot boons: Recruitment Drive / Fresh Blood spawn heroes pre-Phase 1.
 	# Both queues drain on the FIRST stage that runs after the boon is picked.
 	_consume_pending_extra_heroes()
-	Telemetry.log_stage_start(num, GameConfig.get_stage_start_rows(num), player_hp, heroes_carried_in)
+	Telemetry.log_stage_start(num, GameConfig.get_realm_cluster_rows(realm_num, num), player_hp, heroes_carried_in)
 	_enter_phase_1(heroes_carried_in)
 
 
@@ -296,7 +378,7 @@ func _enter_phase_1(heroes_carried_in: int = 0) -> void:
 		lane.combat_enabled = false
 		lane.frenzied_colors = {}
 	_spawn_line_set_phase(Phase.PHASE_1)
-	Telemetry.log_phase1_start(stage_num, GameConfig.get_stage_start_rows(stage_num), heroes_carried_in)
+	Telemetry.log_phase1_start(stage_num, GameConfig.get_realm_cluster_rows(realm_num, stage_num), heroes_carried_in)
 	_show_banner("PHASE 1 — BUILD", 0.8)
 	_set_wave_progress_visible(false)
 
@@ -337,9 +419,9 @@ func _enter_phase_2() -> void:
 	_phase = Phase.PHASE_2
 	_phase_start_ms = Time.get_ticks_msec()
 	_phase2_time_remaining = GameConfig.get_phase2_cap_sec(stage_num)
-	_wave_queue = GameConfig.get_wave_composition(stage_num)
+	_wave_queue = GameConfig.get_wave_composition(realm_num, stage_num)
 	_wave_size_total = _wave_queue.size()
-	_boss_pending = (stage_num == 5)   # stage 5 appends a boss after the walker wave
+	_boss_pending = (stage_num == 5)   # every realm's S5 appends a boss
 	_boss_alive = false
 	_wave_spawn_timer = 0.0   # spawn first enemy immediately
 	_wave_next_col = 0
@@ -351,15 +433,16 @@ func _enter_phase_2() -> void:
 			lane.apply_color_frenzy_persistent(color)
 		lane.combat_enabled = true
 	_spawn_line_set_phase(Phase.PHASE_2)
-	# wave_composition payload: { "R": n, "B": n, "Y": n }
-	# _wave_queue is now Array[Dictionary] of {color, variant}.
-	var wave_comp: Dictionary = {"R": 0, "B": 0, "Y": 0}
+	# wave_composition rollup for telemetry.
+	var wave_comp: Dictionary = {"R": 0, "B": 0, "Y": 0, "G": 0, "P": 0}
 	for entry in _wave_queue:
 		var c: int = entry["color"]
 		match c:
 			GameConfig.BubbleColor.RED:    wave_comp["R"] += 1
 			GameConfig.BubbleColor.BLUE:   wave_comp["B"] += 1
 			GameConfig.BubbleColor.YELLOW: wave_comp["Y"] += 1
+			GameConfig.BubbleColor.GREEN:  wave_comp["G"] += 1
+			GameConfig.BubbleColor.PURPLE: wave_comp["P"] += 1
 	Telemetry.log_phase2_start(stage_num, 0, {}, _wave_size_total, wave_comp)
 	# §4.2 Time Stop: drain pending stop-seconds at P2 start. One-shot per pick.
 	if RunState.boon_time_stop_pending_sec > 0.0:
@@ -408,14 +491,24 @@ func _process(delta: float) -> void:
 
 func _process_phase_1(delta: float) -> void:
 	_phase1_time_remaining -= delta
+	# §8.3 R2 cluster shake — every N sec during P1, descend 1 row.
+	if _shake_enabled and _shake_timer > 0.0:
+		_shake_timer -= delta
+		if _shake_timer <= 0.0:
+			_shake_timer = GameConfig.cluster_shake_interval_sec
+			if cluster:
+				cluster.descend_rows(1)
+				Vfx.screen_shake(self, 10.0, 0.20)
+	# §8.5 R4 / §8.6 R5 — time-based cluster descent.
+	if _descent_period > 0.0:
+		_descent_timer -= delta
+		if _descent_timer <= 0.0:
+			_descent_timer = _descent_period
+			if cluster: cluster.descend_rows(1)
 	# End Phase 1 when no bubbles remain above the spawn line.
 	if cluster and cluster.bubbles_above_spawn_line_count() == 0:
 		_enter_transition("cluster_cleared")
 		return
-	# Rule: cluster only descends when a new row spawns (handled inside
-	# Cluster._grow_top_row, which tweens existing bubbles down by ROW_HEIGHT_PX).
-	# Previously stages 4+ ran a time-based descent and stage 5 added a boss shake;
-	# both violated the rule by moving the cluster without spawning new rows.
 	if _phase1_time_remaining <= 0:
 		if cluster: cluster.sweep_all()
 		_enter_transition("time_cap")
@@ -450,16 +543,24 @@ func _process_phase_2(delta: float) -> void:
 			var entry: Dictionary = _wave_queue.pop_front()
 			var color: int = entry["color"]
 			var variant: String = entry.get("variant", "walker")
-			lane.spawn_wave_enemy(color, _wave_next_col, _wave_index, variant, stage_num)
+			lane.spawn_wave_enemy(color, _wave_next_col, _wave_index, variant, stage_num, realm_num)
 			_wave_next_col = (_wave_next_col + 1) % Lane.COLS
 			_wave_index += 1
 			_wave_spawn_timer = GameConfig.wave_spawn_interval_sec
-	# Stage 5: append the boss one beat after the last walker spawns.
+	# Every S5: append the boss one beat after the last walker spawns.
+	# R5S3 mini-boss (Echo of Voidcrown) — spawn mid-wave (after first 1/3 of wave drained).
 	elif _boss_pending:
 		_wave_spawn_timer -= delta
 		if _wave_spawn_timer <= 0:
 			_spawn_boss()
 			_boss_pending = false
+	if _mini_boss_pending and not _mini_boss_alive:
+		# Drop the Echo once the wave_queue has run for a beat (drain about half).
+		if float(_wave_queue.size()) <= float(_wave_size_total) * 0.5:
+			_spawn_mini_boss()
+			_mini_boss_pending = false
+	# Boss mechanic ticker — pegged to whichever S5 boss this realm has.
+	_process_boss_mechanics(delta)
 	# Phase 2 time cap: if hit with enemies still alive → fail.
 	if _phase2_time_remaining <= 0:
 		_fail_stage("phase2_cap")
@@ -599,16 +700,326 @@ func _update_base_visuals() -> void:
 		base_smoke.color = Color(0.42, 0.42, 0.45, smoke_alpha)
 
 func _spawn_boss() -> void:
-	# Stage 5 boss: red, centre column (col=4 of 8). Death/leak both clear _boss_alive
-	# so the grace timer in _on_lane_cleared can fire.
+	# Per-realm S5 boss. Color, HP, and damage come from GameConfig realm tables.
 	var center_col: int = int(Lane.COLS / 2)
-	var boss: Enemy = lane.spawn_boss(GameConfig.BubbleColor.RED, center_col)
+	var boss_color: int = GameConfig.boss_color_for_realm(realm_num)
+	var boss: Enemy = lane.spawn_boss(boss_color, center_col, realm_num, stage_num)
 	if boss == null: return
+	_boss_ref = boss
 	_boss_alive = true
-	# Boss death/leak counted in addition to walkers.
-	boss.died.connect(func(_id, _c, _src, _life): _boss_alive = false)
-	boss.reached_cannon.connect(func(_id, _c, _dmg): _boss_alive = false)
-	_show_banner("BOSS", 1.0)
+	# Lane.lane_cleared fires from Lane's listener before our _boss_alive flips.
+	# Re-run the clear check after flipping so the grace timer starts on S5.
+	boss.died.connect(func(_id, _c, _src, _life):
+		_boss_alive = false
+		_boss_ref = null
+		_on_lane_cleared()
+	)
+	boss.reached_cannon.connect(func(_id, _c, _dmg):
+		_boss_alive = false
+		_boss_ref = null
+		_on_lane_cleared()
+	)
+	_show_banner("%s — BOSS!" % GameConfig.boss_name(realm_num).to_upper(), 1.2)
+
+# §8.6 R5S3 Echo of Voidcrown — mini-boss that periodically spawns Phasers.
+func _spawn_mini_boss() -> void:
+	var center_col: int = int(Lane.COLS / 2)
+	var color: int = GameConfig.BubbleColor.PURPLE
+	var echo: Enemy = lane.spawn_boss(color, center_col, realm_num, stage_num,
+		GameConfig.echo_hp, GameConfig.echo_damage_on_reach)
+	if echo == null: return
+	_mini_boss_ref = echo
+	_mini_boss_alive = true
+	_echo_phaser_timer = GameConfig.echo_phaser_spawn_interval_sec
+	echo.died.connect(func(_id, _c, _src, _life):
+		_mini_boss_alive = false
+		_mini_boss_ref = null
+		_on_lane_cleared()
+	)
+	echo.reached_cannon.connect(func(_id, _c, _dmg):
+		_mini_boss_alive = false
+		_mini_boss_ref = null
+		_on_lane_cleared()
+	)
+	_show_banner("ECHO OF VOIDCROWN", 1.2)
+
+# §8.6 R5S5 — Voidcrown Twins phase B (Sister Umbra) spawns when Lumen drops
+# below 50% HP. Both alive triggers synergy buffs.
+func _spawn_twin_phase_b() -> void:
+	var spawn_col: int = (int(Lane.COLS / 2) + 1) % Lane.COLS
+	var umbra_color: int = GameConfig.boss_phase_b_color(realm_num)
+	var umbra: Enemy = lane.spawn_boss(umbra_color, spawn_col, realm_num, stage_num)
+	if umbra == null: return
+	_phase_b_ref = umbra
+	_phase_b_alive = true
+	umbra.died.connect(func(_id, _c, _src, _life):
+		_phase_b_alive = false
+		_phase_b_ref = null
+		_on_lane_cleared()
+	)
+	umbra.reached_cannon.connect(func(_id, _c, _dmg):
+		_phase_b_alive = false
+		_phase_b_ref = null
+		_on_lane_cleared()
+	)
+	_show_banner("SISTER UMBRA AWAKENS", 1.2)
+
+# ============================================================
+# §8.x — Per-realm boss mechanic tickers
+# ============================================================
+func _process_boss_mechanics(delta: float) -> void:
+	# Echo (R5S3): periodic Phaser spawn while alive.
+	if _mini_boss_alive:
+		_echo_phaser_timer -= delta
+		if _echo_phaser_timer <= 0.0:
+			_echo_phaser_timer = GameConfig.echo_phaser_spawn_interval_sec
+			lane.spawn_wave_enemy(GameConfig.BubbleColor.PURPLE,
+				randi() % Lane.COLS, _wave_index, "phaser", stage_num, realm_num)
+			_wave_index += 1
+	if not _boss_alive: return
+	# R2S5 Storm Tyrant — electrified column.
+	if realm_num == 2 and stage_num == 5:
+		_tick_storm_tyrant(delta)
+	# R3S5 Verdant Warden — vine root pillars.
+	elif realm_num == 3 and stage_num == 5:
+		_tick_warden(delta)
+	# R4S5 Spire Ravager — lane slam.
+	elif realm_num == 4 and stage_num == 5:
+		_tick_ravager(delta)
+	# R5S5 Voidcrown Twins — phase A (Lumen) beam + phase B trigger.
+	elif realm_num == 5 and stage_num == 5:
+		_tick_twins(delta)
+
+func _tick_storm_tyrant(delta: float) -> void:
+	# Telegraph → active → cooldown loop.
+	if _zap_active_timer > 0.0:
+		_zap_active_timer -= delta
+		if _zap_active_timer <= 0.0:
+			_end_zap()
+	elif _zap_telegraph_timer > 0.0:
+		_zap_telegraph_timer -= delta
+		if _zap_telegraph_timer <= 0.0:
+			_start_zap_active()
+	else:
+		# Cooldown ticks via _zap_active_timer being 0 + zap_telegraph_timer 0.
+		# Use _ravager_slam_timer? No — different mech. We'll piggyback: every
+		# storm_tyrant_zap_interval_sec, kick off a new telegraph.
+		if _zap_column == -1:
+			_zap_column = _begin_zap_telegraph()
+
+func _begin_zap_telegraph() -> int:
+	# Pick a random column that has at least one row-0 hero (more interesting).
+	var col: int = randi() % Lane.COLS
+	for c in Lane.COLS:
+		var test_c: int = (col + c) % Lane.COLS
+		if lane._heroes_by_cell[0][test_c] != null:
+			col = test_c
+			break
+	_zap_column = col
+	_zap_telegraph_timer = GameConfig.storm_tyrant_zap_telegraph_sec
+	_show_zap_overlay(col, true)
+	return col
+
+func _start_zap_active() -> void:
+	_zap_active_timer = GameConfig.storm_tyrant_zap_active_sec
+	_show_zap_overlay(_zap_column, false)
+	# Apply damage_taken_mult to heroes in column.
+	if _zap_column >= 0:
+		var h: Hero = lane._heroes_by_cell[0][_zap_column]
+		if h != null and is_instance_valid(h):
+			h.damage_taken_mult = GameConfig.storm_tyrant_zap_damage_mult
+
+func _end_zap() -> void:
+	if _zap_column >= 0:
+		var h: Hero = lane._heroes_by_cell[0][_zap_column]
+		if h != null and is_instance_valid(h):
+			h.damage_taken_mult = 1.0
+	_zap_column = -1
+	_clear_zap_overlay()
+	# Cooldown delay before next telegraph.
+	_zap_telegraph_timer = 0.0
+	_zap_active_timer = 0.0
+	# Defer next strike via a one-shot timer.
+	var t := get_tree().create_timer(GameConfig.storm_tyrant_zap_interval_sec - GameConfig.storm_tyrant_zap_telegraph_sec - GameConfig.storm_tyrant_zap_active_sec)
+	t.timeout.connect(func():
+		if _phase == Phase.PHASE_2 and _boss_alive:
+			_zap_column = _begin_zap_telegraph())
+
+func _show_zap_overlay(col: int, is_telegraph: bool) -> void:
+	_clear_zap_overlay()
+	if col < 0: return
+	var col_w: float = Lane.CELL_W
+	var col_h: float = float(Lane.ROWS) * Lane.CELL_H + 200.0
+	var rect := ColorRect.new()
+	rect.color = Color(1.0, 0.95, 0.4, 0.20 if is_telegraph else 0.45)
+	rect.size = Vector2(col_w, col_h)
+	rect.position = Vector2(col_w * float(col), -col_h * 0.6)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect.z_index = 30
+	lane.add_child(rect)
+	_zap_overlay = rect
+
+func _clear_zap_overlay() -> void:
+	if _zap_overlay != null and is_instance_valid(_zap_overlay):
+		_zap_overlay.queue_free()
+	_zap_overlay = null
+
+func _tick_warden(delta: float) -> void:
+	# Spawn vine-root pillars every N sec. While at least one alive, boss takes
+	# -50% damage (handled via boss take_damage mult set when vines alive).
+	_warden_vine_timer -= delta
+	if _warden_vine_timer <= 0.0:
+		_warden_vine_timer = GameConfig.warden_vine_pillar_interval_sec
+		_spawn_warden_vine_pillar()
+	# Apply / clear damage modifier on the boss based on vine count.
+	if _boss_ref != null and is_instance_valid(_boss_ref):
+		if _warden_vines_alive > 0:
+			_boss_ref.set_meta("dmg_taken_mult", GameConfig.warden_damage_taken_while_vines_alive)
+		else:
+			_boss_ref.set_meta("dmg_taken_mult", 1.0)
+
+func _spawn_warden_vine_pillar() -> void:
+	var col: int = randi() % Lane.COLS
+	lane.spawn_wave_enemy(GameConfig.BubbleColor.GREEN, col,
+		_wave_index, "walker", stage_num, realm_num)
+	# spawn_wave_enemy returns void; grab the just-spawned enemy off the lane list.
+	if lane._enemies.is_empty(): return
+	var v: Enemy = lane._enemies[-1]
+	if v == null or not is_instance_valid(v): return
+	v.hp = GameConfig.warden_vine_root_hp
+	v.max_hp = GameConfig.warden_vine_root_hp
+	v.set_meta("is_vine", true)
+	_warden_vines_alive += 1
+	v.died.connect(func(_id, _c, _src, _life):
+		_warden_vines_alive = max(0, _warden_vines_alive - 1))
+	v.reached_cannon.connect(func(_id, _c, _dmg):
+		_warden_vines_alive = max(0, _warden_vines_alive - 1))
+	_wave_index += 1
+
+func _tick_ravager(delta: float) -> void:
+	_ravager_slam_timer -= delta
+	if _ravager_telegraph != null and is_instance_valid(_ravager_telegraph):
+		# Telegraph countdown.
+		if _ravager_slam_timer <= 0.0:
+			_do_ravager_slam()
+	elif _ravager_slam_timer <= 0.0:
+		# Start telegraph.
+		_ravager_slam_timer = GameConfig.ravager_slam_telegraph_sec
+		_show_ravager_telegraph()
+
+func _show_ravager_telegraph() -> void:
+	_clear_ravager_telegraph()
+	var crack := ColorRect.new()
+	crack.color = Color(0.95, 0.55, 0.20, 0.55)
+	crack.size = Vector2(Lane.COLS * Lane.CELL_W, 14.0)
+	crack.position = Vector2(0, -7.0)
+	crack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	crack.z_index = 30
+	lane.add_child(crack)
+	_ravager_telegraph = crack
+	Vfx.screen_shake(self, 6.0, 0.40)
+
+func _clear_ravager_telegraph() -> void:
+	if _ravager_telegraph != null and is_instance_valid(_ravager_telegraph):
+		_ravager_telegraph.queue_free()
+	_ravager_telegraph = null
+
+func _do_ravager_slam() -> void:
+	_clear_ravager_telegraph()
+	# Collapse all row-0 heroes to col 0+ in FIFO. Heroes at col 0 stay, others
+	# pack left into the next empty slot.
+	if lane != null:
+		var heroes_in_order: Array = []
+		for c in Lane.COLS:
+			var h: Hero = lane._heroes_by_cell[0][c]
+			if h != null and is_instance_valid(h):
+				heroes_in_order.append(h)
+		# Clear row 0, then re-place in slots starting at col 0.
+		for c in Lane.COLS:
+			lane._heroes_by_cell[0][c] = null
+		for i in range(heroes_in_order.size()):
+			var h: Hero = heroes_in_order[i]
+			if i < Lane.COLS:
+				lane._heroes_by_cell[0][i] = h
+				h.lane_col = i
+				h.position = lane.cell_to_local_pos(0, i)
+				h.position.y = -Lane.CELL_H * 0.5
+		lane.refresh_merge_options()
+	Vfx.screen_shake(self, 22.0, 0.45)
+	_ravager_slam_timer = GameConfig.ravager_slam_interval_sec
+
+func _tick_twins(delta: float) -> void:
+	# Phase A (Lumen) — beam fires periodically on a random column.
+	_twins_lumen_beam_timer -= delta
+	if _twins_lumen_beam_telegraph_t > 0.0:
+		_twins_lumen_beam_telegraph_t -= delta
+		if _twins_lumen_beam_telegraph_t <= 0.0:
+			_fire_lumen_beam()
+	elif _twins_lumen_beam_timer <= 0.0:
+		_begin_lumen_beam()
+	# Phase B trigger: Lumen at <50%.
+	if not _twin_phase_b_spawned and _boss_ref != null and is_instance_valid(_boss_ref):
+		var ratio: float = float(_boss_ref.hp) / max(1.0, float(_boss_ref.max_hp))
+		if ratio < GameConfig.twins_phase_b_trigger_hp_pct:
+			_twin_phase_b_spawned = true
+			_spawn_twin_phase_b()
+	# Synergy buff while both alive — heal each other + bonus dmg.
+	if _phase_b_alive and _boss_alive:
+		var heal: int = GameConfig.twins_synergy_heal_per_sec
+		var tick: float = delta
+		# Scale heal by delta so it ticks once-per-sec smoothly.
+		if _boss_ref != null and is_instance_valid(_boss_ref):
+			_boss_ref.hp = min(_boss_ref.max_hp,
+				_boss_ref.hp + int(round(float(heal) * tick)))
+		if _phase_b_ref != null and is_instance_valid(_phase_b_ref):
+			_phase_b_ref.hp = min(_phase_b_ref.max_hp,
+				_phase_b_ref.hp + int(round(float(heal) * tick)))
+	# Umbra (phase B) swap heroes' positions periodically.
+	if _phase_b_alive:
+		_twins_umbra_swap_timer -= delta
+		if _twins_umbra_swap_timer <= 0.0:
+			_twins_umbra_swap_timer = GameConfig.twins_umbra_swap_interval_sec
+			_umbra_swap_heroes()
+
+func _begin_lumen_beam() -> void:
+	_twins_lumen_beam_col = randi() % Lane.COLS
+	_twins_lumen_beam_telegraph_t = GameConfig.twins_lumen_beam_telegraph_sec
+	_show_zap_overlay(_twins_lumen_beam_col, true)
+
+func _fire_lumen_beam() -> void:
+	# Instant-kill any hero in the marked column on hit.
+	_clear_zap_overlay()
+	var col: int = _twins_lumen_beam_col
+	if col >= 0:
+		var h: Hero = lane._heroes_by_cell[0][col]
+		if h != null and is_instance_valid(h):
+			h.take_damage(99999)
+	_twins_lumen_beam_col = -1
+	_twins_lumen_beam_telegraph_t = 0.0
+	_twins_lumen_beam_timer = GameConfig.twins_lumen_beam_interval_sec
+	Vfx.screen_shake(self, 18.0, 0.30)
+
+func _umbra_swap_heroes() -> void:
+	if lane == null: return
+	# Pick two heroes in row 0 and swap.
+	var present: Array = []
+	for c in Lane.COLS:
+		var h: Hero = lane._heroes_by_cell[0][c]
+		if h != null and is_instance_valid(h):
+			present.append({"h": h, "c": c})
+	if present.size() < 2: return
+	present.shuffle()
+	var a = present[0]
+	var b = present[1]
+	lane._heroes_by_cell[0][a.c] = b.h
+	lane._heroes_by_cell[0][b.c] = a.h
+	b.h.lane_col = a.c
+	a.h.lane_col = b.c
+	b.h.position = lane.cell_to_local_pos(0, a.c)
+	b.h.position.y = -Lane.CELL_H * 0.5
+	a.h.position = lane.cell_to_local_pos(0, b.c)
+	a.h.position.y = -Lane.CELL_H * 0.5
+	lane.refresh_merge_options()
 
 func _on_cluster_reached_lane() -> void:
 	# V8 §3.8: cluster reaching the lane in Phase 1 is NOT a fail —
@@ -617,11 +1028,13 @@ func _on_cluster_reached_lane() -> void:
 		_enter_transition("descent_complete")
 
 func _on_lane_cleared() -> void:
-	# Phase 2 stage-clear grace: only start the 2s timer once the WHOLE wave has spawned
-	# AND (for Stage 5) the boss has spawned + died.
+	# Phase 2 stage-clear grace: 2s after last enemy death, only once the WHOLE
+	# wave has spawned AND any boss/mini-boss/twin-phase-B is dead.
 	if _phase != Phase.PHASE_2: return
 	if not _wave_queue.is_empty(): return
 	if _boss_pending or _boss_alive: return
+	if _mini_boss_pending or _mini_boss_alive: return
+	if _phase_b_alive: return
 	_no_enemy_timer = GameConfig.stage_clear_no_enemies_sec
 	# Approximate enemies_killed: total spawned minus leaked. (Heroes can also die,
 	# but lane_cleared fires only when _enemies.is_empty — leaks counted separately.)
@@ -651,11 +1064,17 @@ func _clear_stage() -> void:
 	# Snapshot surviving heroes so the next stage can carry them forward.
 	if lane:
 		RunState.run_heroes = lane.snapshot_heroes()
-	_show_banner("STAGE %d CLEAR" % stage_num, 1.5)
+	# Star award per §8.7. HP% + moves-unused% determine 1-3 stars.
+	var hp_pct: float = 0.0 if _max_player_hp <= 0 else float(player_hp) / float(_max_player_hp)
+	var moves_unused_pct: float = 0.0 if _start_moves <= 0 else float(_moves_remaining) / float(_start_moves)
+	var stars: int = RunState.compute_stars(hp_pct, moves_unused_pct)
+	RunState.award_stars(realm_num, stage_num, stars)
+	var star_glyphs: String = "★".repeat(stars) + "☆".repeat(3 - stars)
+	_show_banner("R%dS%d CLEAR  %s" % [realm_num, stage_num, star_glyphs], 1.6)
 	# Hand off to Main router after a beat (lets banner read).
 	var cleared_stage: int = stage_num
 	var tw := create_tween()
-	tw.tween_interval(1.4)
+	tw.tween_interval(1.5)
 	tw.tween_callback(func(): stage_cleared.emit(cleared_stage))
 
 func _fail_stage(reason: String) -> void:
