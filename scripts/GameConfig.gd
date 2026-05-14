@@ -53,7 +53,7 @@ const COLOR_HEX := {
 @export var cluster_descent_pop_relief_rows: int = 0
 
 # Legacy R1 move budget. Realm-aware version below.
-@export var move_budget_per_stage: Array[int] = [10, 12, 12, 14, 16]
+@export var move_budget_per_stage: Array[int] = [8, 9, 10, 11, 13]
 
 # ============================================================
 # §3.10.1 — Cluster + move budget per realm
@@ -75,7 +75,7 @@ const REALM_CLUSTER_COLS_BY_STAGE: Array = [
 	[6, 6, 6, 6, 6],   # R5
 ]
 const REALM_MOVE_BUDGET: Array = [
-	[10, 12, 12, 14, 16],   # R1
+	[8, 9, 10, 11, 13],     # R1
 	[12, 13, 15, 17, 18],   # R2
 	[14, 15, 17, 19, 20],   # R3
 	[16, 17, 19, 21, 22],   # R4
@@ -146,35 +146,35 @@ const BOSS_PHASE_B_COLORS: Array = [
 # Fire Knight (RED) — close-range cone
 @export var red_cone_rows: int = 4
 @export var red_cone_cols: int = 1
-@export var red_fire_rate_sec: float = 0.75
+@export var red_fire_rate_sec: float = 0.5
 @export var red_dmg_mult: float = 1.0
 @export var red_cleave_chance: float = 0.25
 @export var red_cleave_targets: int = 2
 # Ice Mage (BLUE) — column lob with AoE splash
 @export var blue_col_radius: int = 1
 @export var blue_reach_rows: int = 10
-@export var blue_fire_rate_sec: float = 1.6
+@export var blue_fire_rate_sec: float = 1.0
 @export var blue_dmg_mult: float = 0.7
 @export var blue_aoe_radius_cells: float = 1.5
 @export var blue_slow_pct: float = 0.30
 @export var blue_slow_duration_sec: float = 2.0
 # Archer (YELLOW) — full-column snipe
 @export var yellow_reach_rows: int = 15
-@export var yellow_fire_rate_sec: float = 1.2
+@export var yellow_fire_rate_sec: float = 0.8
 @export var yellow_dmg_mult: float = 1.4
 @export var yellow_execute_threshold: float = 0.30
 @export var yellow_execute_bonus: float = 0.50
 # Druid (GREEN, R3) — mid-range chain-heal support (§8.4)
 @export var green_reach_rows: int = 6
 @export var green_col_radius: int = 1
-@export var green_fire_rate_sec: float = 1.0
+@export var green_fire_rate_sec: float = 0.7
 @export var green_dmg_mult: float = 0.9
 @export var green_chain_heal_amount: int = 5
 @export var green_chain_heal_targets: int = 2
 @export var green_heal_per_hero_cap_per_sec: int = 15
 # Wizard (PURPLE, R5) — full-lane AOE burst (§8.6)
 @export var purple_reach_rows: int = 15
-@export var purple_fire_rate_sec: float = 2.0
+@export var purple_fire_rate_sec: float = 1.4
 @export var purple_dmg_mult: float = 2.5
 @export var purple_aoe_radius_cells: float = 1.5
 @export var purple_burst_every_n_hits: int = 5
@@ -189,15 +189,15 @@ const BOSS_PHASE_B_COLORS: Array = [
 # ============================================================
 @export_group("Enemies")
 @export var red_enemy_hp:    int = 50
-@export var red_enemy_speed_sec_per_cell: float = 1.0
+@export var red_enemy_speed_sec_per_cell: float = 0.55
 @export var blue_enemy_hp:   int = 80
-@export var blue_enemy_speed_sec_per_cell: float = 1.5
+@export var blue_enemy_speed_sec_per_cell: float = 0.9
 @export var yellow_enemy_hp: int = 120
-@export var yellow_enemy_speed_sec_per_cell: float = 1.2
+@export var yellow_enemy_speed_sec_per_cell: float = 0.7
 @export var green_enemy_hp: int = 65
-@export var green_enemy_speed_sec_per_cell: float = 1.0
+@export var green_enemy_speed_sec_per_cell: float = 0.55
 @export var purple_enemy_hp: int = 75
-@export var purple_enemy_speed_sec_per_cell: float = 1.1
+@export var purple_enemy_speed_sec_per_cell: float = 0.65
 @export var red_enemy_damage_on_reach:    int = 10
 @export var blue_enemy_damage_on_reach:   int = 10
 @export var yellow_enemy_damage_on_reach: int = 15

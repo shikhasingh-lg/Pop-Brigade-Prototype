@@ -30,6 +30,8 @@ const PAUSE_OVERLAY_SCENE := preload("res://scenes/PauseOverlay.tscn")
 # Battle-line red trim. Dim in Phase 1, pulses in Phase 2.
 @onready var spawn_line: ColorRect = $SpawnLine
 var _spawn_line_tween: Tween = null
+# HP-bar pulse: brightens base_hp_bar_fill when player HP < 50% (faster under 25%).
+var _hp_pulse_t: float = 0.0
 const BASE_HP_BAR_LEFT: float = 42.0
 const BASE_HP_BAR_RIGHT: float = 678.0
 const BASE_WALL_FULL: Color = Color(0.275, 0.212, 0.157, 1)
@@ -490,11 +492,30 @@ func _spawn_line_set_phase(phase: int) -> void:
 # ============================================================
 func _process(delta: float) -> void:
 	if not _stage_active: return
+	_tick_hp_pulse(delta)
 	match _phase:
 		Phase.PHASE_1:     _process_phase_1(delta)
 		Phase.TRANSITION:  _process_transition(delta)
 		Phase.PHASE_2:     _process_phase_2(delta)
 		_: pass
+
+# Pulsing HP-bar tell: under 50% HP, base_hp_bar_fill glows brighter on a sine;
+# under 25% the cadence roughly doubles for the "we're dying" read.
+func _tick_hp_pulse(delta: float) -> void:
+	if base_hp_bar_fill == null: return
+	var max_hp: float = float(GameConfig.stage_start_hp)
+	if max_hp <= 0.0: return
+	var frac: float = clamp(float(player_hp) / max_hp, 0.0, 1.0)
+	if frac >= 0.5:
+		_hp_pulse_t = 0.0
+		base_hp_bar_fill.modulate = Color(1, 1, 1, 1)
+		return
+	var freq: float = 7.0 if frac < 0.25 else 3.5
+	_hp_pulse_t += delta * freq
+	var amp: float = 0.45 if frac < 0.25 else 0.30
+	var k: float = (sin(_hp_pulse_t) + 1.0) * 0.5  # 0..1
+	var v: float = 1.0 + amp * k
+	base_hp_bar_fill.modulate = Color(v, v * 0.85, v * 0.85, 1)
 
 func _process_phase_1(delta: float) -> void:
 	_phase1_time_remaining -= delta
