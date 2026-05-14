@@ -16,21 +16,29 @@ const DOT_SPACING_PX: float = 28.0
 const DOT_BASE_RADIUS: float = 5.0
 const DOT_TIP_RADIUS: float = 3.0
 const GHOST_RADIUS: float = 26.0  # bubble cutout sits in a ~52px box
+const PATH_RADIUS: float = 28.0
+const PATH_FILL_ALPHA: float = 0.11
 const FADE_NEAR_ALPHA: float = 0.85
 const FADE_FAR_ALPHA: float = 0.15
 const ELBOW_RADIUS: float = 4.0   # bend marker at each ricochet
 const DOT_OUTLINE: Color = Color(0, 0, 0, 0.55)
 
 var polyline: PackedVector2Array = PackedVector2Array()
+var ghost_position: Vector2 = Vector2.ZERO
+var has_ghost_position: bool = false
 var bubble_color: int = 0
 
-func set_polyline(pts: PackedVector2Array, color_idx: int) -> void:
+func set_polyline(pts: PackedVector2Array, color_idx: int, landing: Variant = null) -> void:
 	polyline = pts
 	bubble_color = color_idx
+	has_ghost_position = landing is Vector2
+	if has_ghost_position:
+		ghost_position = landing
 	queue_redraw()
 
 func clear() -> void:
 	polyline = PackedVector2Array()
+	has_ghost_position = false
 	queue_redraw()
 
 func _draw() -> void:
@@ -43,6 +51,11 @@ func _draw() -> void:
 		total_len += polyline[i].distance_to(polyline[i + 1])
 	if total_len <= 0.0:
 		return
+	# Faint "thick ray": this is the actual clearance envelope of the bubble,
+	# so gaps that look open to the centerline but not to the full ball read as blocked.
+	for seg in range(polyline.size() - 1):
+		draw_line(polyline[seg], polyline[seg + 1],
+			Color(col.r, col.g, col.b, PATH_FILL_ALPHA), PATH_RADIUS * 2.0, true)
 	# Walk the polyline at fixed spacing; emit a fading dot at each step.
 	var dist_along: float = DOT_SPACING_PX * 0.5  # offset first dot off the cannon body
 	for seg in range(polyline.size() - 1):
@@ -65,7 +78,7 @@ func _draw() -> void:
 		if seg < polyline.size() - 2:
 			draw_circle(polyline[seg + 1], ELBOW_RADIUS, Color(col.r, col.g, col.b, 0.55))
 	# Ghost bubble at the predicted landing point.
-	var landing: Vector2 = polyline[polyline.size() - 1]
+	var landing: Vector2 = ghost_position if has_ghost_position else polyline[polyline.size() - 1]
 	_draw_ghost_bubble(landing, col)
 
 func _dist_to_seg_start(seg_idx: int) -> float:

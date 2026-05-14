@@ -18,8 +18,8 @@ signal cluster_reached_lane()  # game over signal
 # so descent never moves the cluster out from under an in-flight bubble.
 signal bubble_resolved(was_pop: bool)
 
-const COLS_EVEN := 8
-const COLS_ODD  := 7   # offset rows have 1 less for hex packing
+const COLS_EVEN := 11
+const COLS_ODD  := 10   # offset rows have 1 less for hex packing
 const BUBBLE_SIZE_PX := 64.0
 const BUBBLE_RADIUS_PX := 32.0  # half BUBBLE_SIZE_PX; used for visual-edge spawn-line checks
 const ROW_HEIGHT_PX  := 56.0  # tighter than diameter for hex tessellation
@@ -244,9 +244,49 @@ func _find_nearest_empty_cell(local_pos: Vector2) -> Vector2i:
 			best = Vector2i(next_row, c)
 	return best
 
-func attach_bubble(bubble: Bubble, at_world_pos: Vector2) -> void:
+# Snap target restricted to empty hex neighbors of the bubble that was hit.
+# This is the correct behavior for a collision-based attach: a glancing hit
+# on the underside of the cluster should snap *adjacent* to the bubble it
+# touched, not to the globally nearest empty cell (which can be a phantom
+# row below the cluster). Returns (-1,-1) if no empty neighbor exists.
+func _find_neighbor_empty_cell(hit: Bubble, local_pos: Vector2) -> Vector2i:
+	if hit == null or hit.grid_row < 0: return Vector2i(-1, -1)
+	var best := Vector2i(-1, -1)
+	var best_dist := INF
+	for n in _hex_neighbors(hit.grid_row, hit.grid_col):
+		var r: int = n.x
+		var c: int = n.y
+		if r < 0 or r >= grid.size(): continue
+		var row_data: Array = grid[r]
+		if c < 0 or c >= row_data.size(): continue
+		if row_data[c] != null: continue
+		var d := _cell_to_local_pos(r, c).distance_to(local_pos)
+		if d < best_dist:
+			best_dist = d
+			best = Vector2i(r, c)
+	return best
+
+func predict_attach_world_position(at_world_pos: Vector2, hit_bubble: Bubble = null) -> Vector2:
 	var local_pos := to_local(at_world_pos)
-	var cell := _find_nearest_empty_cell(local_pos)
+	var cell := Vector2i(-1, -1)
+	if hit_bubble != null:
+		cell = _find_neighbor_empty_cell(hit_bubble, local_pos)
+	if cell.x < 0:
+		cell = _find_nearest_empty_cell(local_pos)
+	if cell.x < 0:
+		return at_world_pos
+	return to_global(_cell_to_local_pos(cell.x, cell.y))
+
+func attach_bubble(bubble: Bubble, at_world_pos: Vector2, hit_bubble: Bubble = null) -> void:
+	var local_pos := to_local(at_world_pos)
+	var cell := Vector2i(-1, -1)
+	# Prefer snapping to an empty hex neighbor of the bubble that was hit.
+	# Falls back to global nearest-empty (incl. extend-downward) for top-wall
+	# attaches and for the edge case where every neighbor is already filled.
+	if hit_bubble != null:
+		cell = _find_neighbor_empty_cell(hit_bubble, local_pos)
+	if cell.x < 0:
+		cell = _find_nearest_empty_cell(local_pos)
 	if cell.x < 0:
 		bubble.queue_free()
 		emit_signal("bubble_resolved", false)

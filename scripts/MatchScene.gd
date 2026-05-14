@@ -524,7 +524,9 @@ func _column_for_match(positions: Array) -> int:
 	var sum := 0
 	for p in positions:
 		sum += int(p.x)  # Vector2(col, row)
-	return int(float(sum) / float(positions.size()))
+	var cluster_col: float = float(sum) / float(positions.size())
+	var max_cluster_col: float = max(1.0, float(Cluster.COLS_EVEN - 1))
+	return int(round((cluster_col / max_cluster_col) * float(Lane.COLS - 1)))
 
 func _on_bubble_resolved(_was_pop: bool) -> void:
 	# Cluster's active-color set is now post-pop; re-validate the cannon queue so

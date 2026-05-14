@@ -19,6 +19,9 @@ var grid_col: int = -1
 var velocity: Vector2 = Vector2.ZERO
 var in_flight: bool = false
 var cluster_ref: Cluster = null
+# The cluster bubble that triggered the collision-based attach. Null when the
+# attach was caused by a top-wall hit (no specific neighbor to anchor against).
+var _hit_bubble: Bubble = null
 
 var _fill_color: Color = Color(1, 1, 1, 1)
 var _texture: Texture2D = null
@@ -37,12 +40,16 @@ const _VISUAL_OVERSIZE := 1.7
 const FIELD_WIDTH := 720.0
 const FIELD_HEIGHT := 1560.0
 const TOP_BOUND_Y := 120.0  # bottom of top HUD; bubbles passing this attach to cluster
+const TOP_CENTER_Y := TOP_BOUND_Y + BUBBLE_RADIUS
 
 var _attaching: bool = false
 
 func _ready() -> void:
 	_apply_color()
-	# Area2D overlap → attach when in flight and the other Area is a stationary cluster bubble.
+	# The bubble is an Area2D for editor-visible collision radius, but shot attach
+	# is driven by the same swept math as the aim preview. Raw overlap callbacks
+	# made near-wall shots feel random because they could disagree with the preview.
+	monitoring = false
 	area_entered.connect(_on_area_entered)
 
 func set_color(c: int) -> void:
@@ -74,38 +81,89 @@ func launch(start_global_pos: Vector2, vel: Vector2, cluster: Cluster) -> void:
 	in_flight = true
 	cluster_ref = cluster
 	_attaching = false
+	_hit_bubble = null
 
 func _physics_process(delta: float) -> void:
 	if not in_flight or _attaching: return
-	position += velocity * delta
-	# §3.3 side-wall ricochet
-	if position.x < BUBBLE_RADIUS and velocity.x < 0:
-		position.x = BUBBLE_RADIUS
-		velocity.x = -velocity.x
-	elif position.x > FIELD_WIDTH - BUBBLE_RADIUS and velocity.x > 0:
-		position.x = FIELD_WIDTH - BUBBLE_RADIUS
-		velocity.x = -velocity.x
-	# §3.2 top-wall attach (no neighbor to snap against — snap to top row)
-	if position.y < TOP_BOUND_Y:
-		position.y = TOP_BOUND_Y
-		_begin_attach()
-		return
+	var remaining: float = velocity.length() * delta
+	var safety := 4
+	while remaining > 0.001 and safety > 0:
+		safety -= 1
+		var dir := velocity.normalized()
+		var t_left: float = INF
+		var t_right: float = INF
+		var t_top: float = INF
+		if dir.x < 0.0: t_left = (BUBBLE_RADIUS - global_position.x) / dir.x
+		if dir.x > 0.0: t_right = (FIELD_WIDTH - BUBBLE_RADIUS - global_position.x) / dir.x
+		if dir.y < 0.0: t_top = (TOP_CENTER_Y - global_position.y) / dir.y
+		var t_wall: float = min(t_left, t_right)
+		var cluster_hit := _sweep_first_cluster_hit(global_position, dir, remaining)
+		var t_cluster: float = cluster_hit["t"]
+		var t: float = min(t_wall, min(t_top, t_cluster))
+		if t == INF or t > remaining:
+			global_position += dir * remaining
+			remaining = 0.0
+			break
+		if t <= 0.001:
+			t = min(remaining, 0.001)
+		global_position += dir * t
+		remaining -= t
+		if t == t_cluster:
+			_hit_bubble = cluster_hit["bubble"]
+			if cluster_ref != null:
+				global_position = cluster_ref.predict_attach_world_position(global_position, _hit_bubble)
+			_begin_attach()
+			return
+		# §3.2 top-wall attach (no neighbor to snap against — snap to top row)
+		if t == t_top:
+			global_position.y = TOP_CENTER_Y
+			if cluster_ref != null:
+				global_position = cluster_ref.predict_attach_world_position(global_position)
+			_begin_attach()
+			return
+		# §3.3 side-wall ricochet
+		if t == t_wall:
+			if global_position.x < FIELD_WIDTH * 0.5:
+				global_position.x = BUBBLE_RADIUS
+			else:
+				global_position.x = FIELD_WIDTH - BUBBLE_RADIUS
+			velocity.x = -velocity.x
+	if remaining > 0.001 and not _attaching:
+		global_position += velocity.normalized() * remaining
 	# Safety: if a bubble ever exits the field (e.g., aim sideways and grazes), free it.
-	if position.y > FIELD_HEIGHT + BUBBLE_RADIUS:
+	if global_position.y > FIELD_HEIGHT + BUBBLE_RADIUS:
 		queue_free()
 
-func _on_area_entered(area: Area2D) -> void:
-	if not in_flight or _attaching: return
-	if not (area is Bubble): return
-	var other: Bubble = area
-	if other == self: return
-	if other.in_flight: return  # ignore in-flight ↔ in-flight (shouldn't happen v1)
-	# Resolve cluster from the bubble we collided with if not already set.
+func _sweep_first_cluster_hit(pos: Vector2, dir: Vector2, max_t: float) -> Dictionary:
 	if cluster_ref == null:
-		var p := other.get_parent()
-		if p is Cluster:
-			cluster_ref = p
-	_begin_attach()
+		return { "t": INF, "bubble": null }
+	var sum_r: float = ATTACH_RADIUS * 2.0
+	var sum_r_sq: float = sum_r * sum_r
+	var best_t: float = INF
+	var best_bubble: Bubble = null
+	for child in cluster_ref.get_children():
+		if not (child is Bubble):
+			continue
+		var b: Bubble = child
+		if b == self or b.in_flight:
+			continue
+		var d: Vector2 = pos - b.global_position
+		var b_coef: float = 2.0 * d.dot(dir)
+		var c_coef: float = d.dot(d) - sum_r_sq
+		var disc: float = b_coef * b_coef - 4.0 * c_coef
+		if disc < 0.0:
+			continue
+		var sqrt_disc: float = sqrt(disc)
+		var t0: float = (-b_coef - sqrt_disc) * 0.5
+		var t1: float = (-b_coef + sqrt_disc) * 0.5
+		var t_hit: float = t0 if t0 > 0.001 else t1
+		if t_hit > 0.001 and t_hit <= max_t and t_hit < best_t:
+			best_t = t_hit
+			best_bubble = b
+	return { "t": best_t, "bubble": best_bubble }
+
+func _on_area_entered(_area: Area2D) -> void:
+	pass
 
 # Two-phase attach: flip state immediately so _physics_process / future signals bail out,
 # then defer the actual reparent so it doesn't run inside a physics callback (Godot forbids
@@ -121,7 +179,7 @@ func _do_attach() -> void:
 	if cluster_ref == null:
 		queue_free()
 		return
-	cluster_ref.attach_bubble(self, global_position)
+	cluster_ref.attach_bubble(self, global_position, _hit_bubble)
 
 func attach_to_grid(row: int, col: int) -> void:
 	grid_row = row

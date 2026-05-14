@@ -41,9 +41,9 @@ var _overcharge_counter: int = 0
 var current_stage_num: int = 1
 
 # Trajectory math constants
-const BUBBLE_RADIUS := 32.0
 const FIELD_WIDTH := 720.0
 const TOP_BOUND_Y := 120.0
+const TOP_CENTER_Y := TOP_BOUND_Y + Bubble.BUBBLE_RADIUS
 # On-deck swap UI rect (matches MatchScene.tscn HUDBottom geometry, in world px).
 const QUEUE_SWAP_HIT_RECT := Rect2(550, 1440, 90, 70)
 
@@ -203,7 +203,8 @@ func _update_aim(touch_pos: Vector2) -> void:
 	queue_redraw()
 	if aim_overlay == null: return
 	aim_overlay.visible = true
-	aim_overlay.set_polyline(_compute_aim_polyline(_current_aim_angle_deg, ricochet_count), current_color)
+	var prediction := _compute_aim_prediction(_current_aim_angle_deg, ricochet_count)
+	aim_overlay.set_polyline(prediction["polyline"], current_color, prediction["landing"])
 
 func _release_aim(touch_pos: Vector2) -> void:
 	if _aim_swap_candidate:
@@ -263,7 +264,7 @@ func _draw_muzzle(angle_deg: float) -> void:
 		MUZZLE_OUTLINE, 2.0, true)
 
 # ============================================================
-# §3.3 — Aim trajectory polyline (world-space; ricochets off side walls,
+# §3.3 — Aim trajectory prediction (world-space; ricochets off side walls,
 # terminates at first cluster contact or top bound)
 # ============================================================
 # The preview must use the SAME collision model as the real ball, otherwise the
@@ -272,47 +273,64 @@ func _draw_muzzle(angle_deg: float) -> void:
 # overlap = centers within (Bubble.ATTACH_RADIUS + Bubble.ATTACH_RADIUS). We
 # mirror that here: a circle-vs-circle sweep against every attached cluster
 # bubble, taking the nearest of wall hit / top hit / cluster hit each segment.
-func _compute_aim_polyline(angle_deg: float, max_ricochets: int) -> PackedVector2Array:
+func _compute_aim_prediction(angle_deg: float, max_ricochets: int) -> Dictionary:
+	if _cluster_ref == null:
+		_resolve_cluster()
 	var pts := PackedVector2Array()
 	var pos := global_position
 	pts.append(pos)
 	var dir := Vector2.from_angle(deg_to_rad(angle_deg))
 	var remaining := max_ricochets
 	var safety := 8
+	var landing: Variant = null
 	while safety > 0:
 		safety -= 1
 		var t_left: float = INF
 		var t_right: float = INF
 		var t_top: float = INF
-		if dir.x < 0: t_left  = (BUBBLE_RADIUS - pos.x) / dir.x
-		if dir.x > 0: t_right = (FIELD_WIDTH - BUBBLE_RADIUS - pos.x) / dir.x
-		if dir.y < 0: t_top   = (TOP_BOUND_Y - pos.y) / dir.y
+		if dir.x < 0: t_left  = (Bubble.BUBBLE_RADIUS - pos.x) / dir.x
+		if dir.x > 0: t_right = (FIELD_WIDTH - Bubble.BUBBLE_RADIUS - pos.x) / dir.x
+		if dir.y < 0: t_top   = (TOP_CENTER_Y - pos.y) / dir.y
 		var t_wall: float = min(t_left, t_right)
-		var t_cluster: float = _segment_first_cluster_hit(pos, dir)
+		var cluster_hit := _segment_first_cluster_hit(pos, dir)
+		var t_cluster: float = cluster_hit["t"]
 		var t: float = min(t_wall, min(t_top, t_cluster))
 		if t == INF or t <= 0:
 			break
 		var hit: Vector2 = pos + dir * t
 		pts.append(hit)
 		# Cluster contact or top bound = terminal (no further ricochet).
-		if t == t_cluster or t == t_top:
+		if t == t_cluster:
+			if _cluster_ref != null:
+				landing = _cluster_ref.predict_attach_world_position(hit, cluster_hit["bubble"])
+				pts[pts.size() - 1] = landing
+			break
+		if t == t_top:
+			if _cluster_ref != null:
+				landing = _cluster_ref.predict_attach_world_position(hit)
+				pts[pts.size() - 1] = landing
 			break
 		if remaining <= 0:
 			break  # no more ricochets allowed in preview
 		dir.x = -dir.x
 		remaining -= 1
 		pos = hit
-	return pts
+	return { "polyline": pts, "landing": landing }
+
+func _compute_aim_polyline(angle_deg: float, max_ricochets: int) -> PackedVector2Array:
+	return _compute_aim_prediction(angle_deg, max_ricochets)["polyline"]
 
 # Distance along (pos, dir) at which a ball of Bubble.ATTACH_RADIUS first
-# overlaps a stationary cluster bubble. Returns INF when no bubble is hit.
+# overlaps a stationary cluster bubble. Returns { t, bubble }; t = INF when
+# no bubble is hit.
 # Solves |(pos + dir*t) - C|² = R² where R = 2 * ATTACH_RADIUS (sum of radii).
-func _segment_first_cluster_hit(pos: Vector2, dir: Vector2) -> float:
+func _segment_first_cluster_hit(pos: Vector2, dir: Vector2) -> Dictionary:
 	if _cluster_ref == null:
-		return INF
+		return { "t": INF, "bubble": null }
 	var sum_r: float = Bubble.ATTACH_RADIUS * 2.0
 	var sum_r_sq: float = sum_r * sum_r
 	var best_t: float = INF
+	var best_bubble: Bubble = null
 	for child in _cluster_ref.get_children():
 		if not (child is Bubble):
 			continue
@@ -333,7 +351,8 @@ func _segment_first_cluster_hit(pos: Vector2, dir: Vector2) -> float:
 		var t_hit: float = t0 if t0 > 0.001 else t1
 		if t_hit > 0.001 and t_hit < best_t:
 			best_t = t_hit
-	return best_t
+			best_bubble = b
+	return { "t": best_t, "bubble": best_bubble }
 
 # ============================================================
 # §3.3 — Fire
