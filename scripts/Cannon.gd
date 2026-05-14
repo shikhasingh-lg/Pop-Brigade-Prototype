@@ -164,12 +164,34 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event
 		if mb.button_index != MOUSE_BUTTON_LEFT: return
+		if _touch_hits_merge_ui(mb.position):
+			_aiming = false
+			_aim_swap_candidate = false
+			_hide_aim_overlay()
+			queue_redraw()
+			return
 		if mb.pressed:
 			_begin_aim(mb.position)
 		else:
 			_release_aim(mb.position)
 	elif event is InputEventMouseMotion and _aiming:
 		_update_aim(event.position)
+
+func _touch_hits_merge_ui(world_pos: Vector2) -> bool:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return false
+	var lane := _find_lane(scene)
+	return lane != null and lane.is_merge_option_at_world_pos(world_pos)
+
+func _find_lane(n: Node) -> Lane:
+	if n is Lane:
+		return n
+	for child in n.get_children():
+		var found := _find_lane(child)
+		if found != null:
+			return found
+	return null
 
 func _begin_aim(touch_pos: Vector2) -> void:
 	_aim_touch_start_ms = Time.get_ticks_msec()

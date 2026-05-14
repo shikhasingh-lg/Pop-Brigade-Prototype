@@ -164,6 +164,9 @@ func _input(event: InputEvent) -> void:
 		var mb: InputEventMouseButton = event
 		if mb.button_index != MOUSE_BUTTON_LEFT: return
 		if mb.pressed:
+			if lane != null and lane.try_activate_merge_at_world_pos(mb.position):
+				get_viewport().set_input_as_handled()
+				return
 			_try_begin_hero_drag(mb.position)
 		elif _drag_hero != null:
 			_end_hero_drag(mb.position)
@@ -174,6 +177,7 @@ func _try_begin_hero_drag(touch_pos: Vector2) -> void:
 	if lane == null: return
 	var h: Hero = lane.find_hero_at_world_pos(touch_pos)
 	if h == null: return
+	lane.clear_merge_options()
 	_drag_hero = h
 	_drag_start_col = h.lane_col
 	_drag_start_ms = Time.get_ticks_msec()
@@ -198,6 +202,7 @@ func _end_hero_drag(touch_pos: Vector2) -> void:
 	h.z_index = 0
 	var target_col: int = lane.world_x_to_row0_col(touch_pos.x)
 	var end_col: int = lane.move_hero(h, target_col)
+	lane.refresh_merge_options()
 	if end_col >= 0 and end_col != _drag_start_col:
 		var dragged_ms: int = Time.get_ticks_msec() - _drag_start_ms
 		Telemetry.log_hero_drag(h.get_instance_id(), _drag_start_col, end_col,

@@ -20,9 +20,17 @@ const CELL_H := 60.0
 # color-stat speed once they reach row 0 (= the spawn line where heroes stand).
 const ENEMY_SPAWN_ROW := -15
 const ENEMY_FAST_SEC_PER_CELL := 0.25
+const MERGE_BUTTON_SIZE := Vector2(74.0, 32.0)
+const MERGE_BUTTON_Y := -122.0
+const MERGEABLE_TIERS := {
+	"bronze": "silver",
+	"silver": "gold",
+}
 
 var _heroes_by_cell: Array = []   # [row][col] = Hero | null
 var _enemies: Array = []          # Array[Enemy]
+var _merge_buttons: Array = []    # Button controls for adjacent mergeable pairs
+var _last_merge_ms: int = -100000
 @export var hero_scene: PackedScene
 @export var enemy_scene: PackedScene
 
@@ -49,6 +57,7 @@ func _ready() -> void:
 
 # Wipe heroes + enemies. Used by MatchScene debug stage-skip (F2).
 func reset() -> void:
+	_clear_merge_options()
 	for r in ROWS:
 		for c in COLS:
 			var h: Hero = _heroes_by_cell[r][c]
@@ -95,6 +104,7 @@ func spawn_hero(color: int, tier: String, col: int, source: String) -> void:
 		_replace_most_damaged_hero_in_row_0(color, tier, source)
 		return
 	_instantiate_hero(color, tier, 0, target_col, source)
+	_refresh_merge_options()
 
 func _find_nearest_empty_col_in_row_0(preferred_col: int) -> int:
 	if _heroes_by_cell[0][preferred_col] == null:
@@ -126,6 +136,7 @@ func _replace_most_damaged_hero_in_row_0(color: int, tier: String, source: Strin
 	_heroes_by_cell[0][victim_col] = null
 	victim.queue_free()
 	_instantiate_hero(color, tier, 0, victim_col, source)
+	_refresh_merge_options()
 
 func _instantiate_hero(color: int, tier: String, target_row: int, col: int, source: String) -> void:
 	var hero: Hero = hero_scene.instantiate()
@@ -148,6 +159,125 @@ func _instantiate_hero(color: int, tier: String, target_row: int, col: int, sour
 	hero.died.connect(_on_hero_died)
 	Vfx.spawn_flash(hero)
 	Telemetry.log_hero_spawn(color, tier, col, target_row, source)
+
+func _next_tier(tier: String) -> String:
+	return String(MERGEABLE_TIERS.get(tier, ""))
+
+func _heroes_can_merge(a: Hero, b: Hero) -> bool:
+	if a == null or b == null: return false
+	if not is_instance_valid(a) or not is_instance_valid(b): return false
+	if a.color != b.color: return false
+	if a.tier != b.tier: return false
+	return _next_tier(a.tier) != ""
+
+func _clear_merge_options() -> void:
+	for btn in _merge_buttons:
+		if btn != null and is_instance_valid(btn):
+			btn.queue_free()
+	_merge_buttons.clear()
+
+func clear_merge_options() -> void:
+	_clear_merge_options()
+
+func refresh_merge_options() -> void:
+	_refresh_merge_options()
+
+func _refresh_merge_options() -> void:
+	_clear_merge_options()
+	for c in range(COLS - 1):
+		var a: Hero = _heroes_by_cell[0][c]
+		var b: Hero = _heroes_by_cell[0][c + 1]
+		if not _heroes_can_merge(a, b):
+			continue
+		_add_merge_button(c, c + 1, a.tier)
+
+func _add_merge_button(left_col: int, right_col: int, tier: String) -> void:
+	var btn := Button.new()
+	btn.text = "MERGE"
+	btn.tooltip_text = "%s + %s -> %s" % [
+		tier.capitalize(),
+		tier.capitalize(),
+		_next_tier(tier).capitalize(),
+	]
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	btn.z_index = 80
+	btn.size = MERGE_BUTTON_SIZE
+	var mid_x: float = (float(left_col + right_col) + 1.0) * CELL_W * 0.5
+	btn.position = Vector2(mid_x - MERGE_BUTTON_SIZE.x * 0.5, MERGE_BUTTON_Y)
+	_style_merge_button(btn, tier)
+	btn.set_meta("left_col", left_col)
+	btn.set_meta("right_col", right_col)
+	btn.pressed.connect(func():
+		_merge_pair(left_col, right_col))
+	add_child(btn)
+	_merge_buttons.append(btn)
+
+func _style_merge_button(btn: Button, tier: String) -> void:
+	var tint: Color = Hero.TIER_COLORS.get(tier, Color(1.0, 0.86, 0.25))
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(tint.r, tint.g, tint.b, 0.92)
+	bg.border_color = Color(1, 1, 1, 0.85)
+	bg.set_border_width_all(2)
+	bg.set_corner_radius_all(8)
+	var hover := bg.duplicate() as StyleBoxFlat
+	hover.bg_color = bg.bg_color.lightened(0.10)
+	var pressed := bg.duplicate() as StyleBoxFlat
+	pressed.bg_color = bg.bg_color.darkened(0.18)
+	btn.add_theme_stylebox_override("normal", bg)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.add_theme_color_override("font_color", Color(0.10, 0.08, 0.04, 1))
+	btn.add_theme_color_override("font_hover_color", Color(0.06, 0.04, 0.02, 1))
+	btn.add_theme_font_size_override("font_size", 13)
+
+func try_activate_merge_at_world_pos(world_pos: Vector2) -> bool:
+	if not is_merge_option_at_world_pos(world_pos):
+		return false
+	for btn in _merge_buttons:
+		if btn == null or not is_instance_valid(btn):
+			continue
+		if not btn.visible:
+			continue
+		if btn.get_global_rect().has_point(world_pos):
+			_merge_pair(int(btn.get_meta("left_col")), int(btn.get_meta("right_col")))
+			return true
+	return false
+
+func is_merge_option_at_world_pos(world_pos: Vector2) -> bool:
+	for btn in _merge_buttons:
+		if btn == null or not is_instance_valid(btn):
+			continue
+		if not btn.visible:
+			continue
+		if btn.get_global_rect().has_point(world_pos):
+			return true
+	return false
+
+func _merge_pair(left_col: int, right_col: int) -> void:
+	var now_ms := Time.get_ticks_msec()
+	if now_ms - _last_merge_ms < 120:
+		return
+	_last_merge_ms = now_ms
+	if left_col < 0 or right_col >= COLS or right_col != left_col + 1:
+		return
+	var a: Hero = _heroes_by_cell[0][left_col]
+	var b: Hero = _heroes_by_cell[0][right_col]
+	if not _heroes_can_merge(a, b):
+		_refresh_merge_options()
+		return
+	var new_tier := _next_tier(a.tier)
+	var new_color := a.color
+	var target_col := left_col
+	var badge_pos := (a.position + b.position) * 0.5 + Vector2(0, -30)
+	_heroes_by_cell[0][left_col] = null
+	_heroes_by_cell[0][right_col] = null
+	a.queue_free()
+	b.queue_free()
+	_instantiate_hero(new_color, new_tier, 0, target_col, "merge")
+	Vfx.floating_badge(self, badge_pos, new_tier.to_upper(), Hero.TIER_COLORS.get(new_tier, Color.WHITE))
+	Telemetry.log_hero_merge(new_color, new_tier, left_col, right_col, target_col)
+	_refresh_merge_options()
 
 func _replace_most_damaged_hero(new_color: int, new_tier: String, source: String) -> void:
 	# §3.4: when no column has empty cells, find the hero with lowest HP across the whole lane.
@@ -176,6 +306,7 @@ func _replace_most_damaged_hero(new_color: int, new_tier: String, source: String
 	_heroes_by_cell[victim_row][victim_col] = null
 	victim.queue_free()
 	_instantiate_hero(new_color, new_tier, victim_row, victim_col, source)
+	_refresh_merge_options()
 
 # Hit-test heroes against a world-space point. v2 §3.2 drag uses this — only
 # row-0 heroes are draggable. Returns the row-0 hero whose center is closest
@@ -212,6 +343,7 @@ func move_hero(hero: Hero, target_col: int) -> int:
 			break
 	if src_col == -1: return -1
 	if src_col == target_col: return src_col
+	_clear_merge_options()
 	var occupant: Hero = _heroes_by_cell[0][target_col]
 	_heroes_by_cell[0][target_col] = hero
 	hero.lane_col = target_col
@@ -224,6 +356,7 @@ func move_hero(hero: Hero, target_col: int) -> int:
 		occupant.position.y = -CELL_H * 0.5
 	else:
 		_heroes_by_cell[0][src_col] = null
+	_refresh_merge_options()
 	return target_col
 
 # Snapshot of all living heroes for cross-stage carry-over.
@@ -258,6 +391,7 @@ func restore_heroes(records: Array) -> void:
 		var h: Hero = _heroes_by_cell[row][col]
 		if h != null:
 			h.hp = int(rec["hp"])
+	_refresh_merge_options()
 
 func _on_hero_died(_id: int, _color: int, _tier: String, _life_ms: int, _dmg: int) -> void:
 	# Find the cell holding this hero (its node is already queue_free'd, so compare instance id).
@@ -266,6 +400,7 @@ func _on_hero_died(_id: int, _color: int, _tier: String, _life_ms: int, _dmg: in
 			var h: Hero = _heroes_by_cell[r][c]
 			if h != null and h.get_instance_id() == _id:
 				_heroes_by_cell[r][c] = null
+				_refresh_merge_options()
 				return
 
 # ============================================================

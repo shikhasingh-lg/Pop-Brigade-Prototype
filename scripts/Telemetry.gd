@@ -193,6 +193,16 @@ func log_hero_spawn(color: int, tier: String, lane_col: int, lane_row: int, sour
 		"source": source,
 	})
 
+func log_hero_merge(color: int, result_tier: String, left_col: int,
+		right_col: int, result_col: int) -> void:
+	log_event("hero_merge", {
+		"color": color,
+		"result_tier": result_tier,
+		"left_col": left_col,
+		"right_col": right_col,
+		"result_col": result_col,
+	})
+
 func log_hero_attack(hero_id: int, target_id: int, damage_dealt: int) -> void:
 	log_event("hero_attack", {
 		"hero_id": hero_id, "target_id": target_id, "damage_dealt": damage_dealt,
