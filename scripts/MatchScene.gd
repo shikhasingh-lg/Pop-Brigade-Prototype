@@ -15,7 +15,6 @@ const PAUSE_OVERLAY_SCENE := preload("res://scenes/PauseOverlay.tscn")
 @onready var cluster: Cluster = $ClusterZone/Cluster
 @onready var lane: Lane = $LaneZone/Lane
 @onready var cannon: Cannon = $HUDBottom/Cannon
-@onready var hud_hp_bar: ProgressBar = $HUDTop/HPBar
 @onready var hud_stage_label: Label = $HUDTop/StageLabel
 @onready var pause_icon: Label = $HUDTop/PauseIcon
 
@@ -23,9 +22,14 @@ const PAUSE_OVERLAY_SCENE := preload("res://scenes/PauseOverlay.tscn")
 # itself, plus damage tint + smoke + shake when enemies reach the wall.
 @onready var base_node: Node2D = $Base
 @onready var base_wall: ColorRect = $Base/Wall
+# HP bar sits just above the parapet — slim strip across the full battlement.
 @onready var base_hp_bar_fill: ColorRect = $Base/HPBarFill
 @onready var base_crack: ColorRect = $Base/Crack
 @onready var base_smoke: ColorRect = $Base/Smoke
+
+# Battle-line red trim. Dim in Phase 1, pulses in Phase 2.
+@onready var spawn_line: ColorRect = $SpawnLine
+var _spawn_line_tween: Tween = null
 const BASE_HP_BAR_LEFT: float = 42.0
 const BASE_HP_BAR_RIGHT: float = 678.0
 const BASE_WALL_FULL: Color = Color(0.275, 0.212, 0.157, 1)
@@ -89,14 +93,26 @@ var _periodic_hero_spawned_this_stage: int = 0
 # §4.2 Time Stop boon: pause wave processing for N seconds at Phase 2 start.
 var _time_stop_remaining: float = 0.0
 
-# Descent is deferred until the player's shot resolves so the cluster doesn't
-# drop out from under an in-flight bubble. Queued on fire, relieved on pop,
-# net applied on bubble_resolved.
-var _pending_descent_rows: int = 0
-var _pending_descent_relief: int = 0
+# Move-budget model (concept.md §3.2): Phase 1 ends when the player runs out of
+# shots. Decremented on each cannon fire; transition fires on 0.
+var _moves_remaining: int = 0
+
+# HUD: moves counter — created at runtime, top-right of the cannon HUD.
+var _moves_label: Label = null
 
 # GET READY! / phase banner (created at runtime — no scene edit needed).
 var _phase_banner: Label = null
+
+# Wave progress (Phase 2 only) — thin bar across the top of the lane plus a
+# "WAVE n/m" label. Created at runtime so no .tscn churn. Shown/hidden on
+# phase transitions; updated on every wave spawn.
+var _wave_bar_bg: ColorRect = null
+var _wave_bar_fill: ColorRect = null
+var _wave_progress_label: Label = null
+const _WAVE_BAR_Y: float = 1032.0
+const _WAVE_BAR_LEFT: float = 30.0
+const _WAVE_BAR_RIGHT: float = 530.0
+const _WAVE_BAR_HEIGHT: float = 8.0
 
 # Hero drag (v2 §3.2 — Phase 2 agency surface, allowed in P1/transition too).
 # Modal: while dragging, cannon aim is blocked. v1 = row 0 only, no cooldown.
@@ -118,6 +134,8 @@ var _dbg_status_label: Label = null
 # ============================================================
 func _ready() -> void:
 	_setup_phase_banner()
+	_setup_wave_progress()
+	_setup_moves_label()
 	_setup_debug_panel()
 	if cluster:
 		cluster.match_popped.connect(_on_match_popped)
@@ -217,14 +235,13 @@ func start_stage(num: int, run_boons: Array) -> void:
 	_max_chain = 0
 	_enemies_killed = 0
 	_enemies_leaked = 0
-	_pending_descent_rows = 0
-	_pending_descent_relief = 0
+	_moves_remaining = GameConfig.get_stage_move_budget(num)
 	_no_enemy_timer = 0.0
+	_refresh_moves_label()
 	_frenzy_buffed_colors = {}
 	_boss_pending = false
 	_boss_alive = false
 	cluster.setup_for_stage(num)
-	hud_hp_bar.value = player_hp
 	_update_base_visuals()
 	hud_stage_label.text = "Stage %d/5" % num
 	if cannon:
@@ -273,8 +290,10 @@ func _enter_phase_1(heroes_carried_in: int = 0) -> void:
 	if lane:
 		lane.combat_enabled = false
 		lane.frenzied_colors = {}
+	_spawn_line_set_phase(Phase.PHASE_1)
 	Telemetry.log_phase1_start(stage_num, GameConfig.get_stage_start_rows(stage_num), heroes_carried_in)
 	_show_banner("PHASE 1 — BUILD", 0.8)
+	_set_wave_progress_visible(false)
 
 func _enter_transition(reason: String) -> void:
 	if _phase != Phase.PHASE_1: return
@@ -290,6 +309,7 @@ func _enter_transition(reason: String) -> void:
 	Telemetry.log_phase1_end(stage_num, _p1_ms, reason,
 		0, {}, _bubbles_fired, _total_pops, _bubbles_lost, _max_chain,
 		_frenzy_buffed_colors.keys())
+	if _moves_label: _moves_label.visible = false
 	_show_banner("GET READY!", GameConfig.phase_transition_sec)
 
 func _award_early_clear_bonus() -> void:
@@ -325,6 +345,7 @@ func _enter_phase_2() -> void:
 		for color in _frenzy_buffed_colors:
 			lane.apply_color_frenzy_persistent(color)
 		lane.combat_enabled = true
+	_spawn_line_set_phase(Phase.PHASE_2)
 	# wave_composition payload: { "R": n, "B": n, "Y": n }
 	# _wave_queue is now Array[Dictionary] of {color, variant}.
 	var wave_comp: Dictionary = {"R": 0, "B": 0, "Y": 0}
@@ -342,6 +363,32 @@ func _enter_phase_2() -> void:
 		_show_banner("TIME STOP — %ds" % int(_time_stop_remaining), 1.0)
 	else:
 		_show_banner("PHASE 2 — DEFEND", 0.8)
+	_refresh_wave_progress()
+	_set_wave_progress_visible(true)
+
+# Drive the battle-line red trim per phase:
+#   PHASE_1 / TRANSITION → dim to α 0.45, no pulse (planning mode).
+#   PHASE_2              → pulse α 0.6 ↔ 1.0 every 1.2s (combat is live).
+#   STAGE_CLEAR / FAIL   → freeze at α 1.0 (clear) or fade to α 0.25 (fail).
+func _spawn_line_set_phase(phase: int) -> void:
+	if spawn_line == null: return
+	if _spawn_line_tween != null and _spawn_line_tween.is_valid():
+		_spawn_line_tween.kill()
+	_spawn_line_tween = null
+	match phase:
+		Phase.PHASE_1, Phase.TRANSITION:
+			spawn_line.modulate.a = 0.45
+		Phase.PHASE_2:
+			spawn_line.modulate.a = 1.0
+			_spawn_line_tween = create_tween().set_loops()
+			_spawn_line_tween.tween_property(spawn_line, "modulate:a", 0.6, 0.6) \
+				.set_trans(Tween.TRANS_SINE)
+			_spawn_line_tween.tween_property(spawn_line, "modulate:a", 1.0, 0.6) \
+				.set_trans(Tween.TRANS_SINE)
+		Phase.STAGE_CLEAR:
+			spawn_line.modulate.a = 1.0
+		Phase.STAGE_FAIL:
+			spawn_line.modulate.a = 0.25
 
 # ============================================================
 # Per-frame phase tick
@@ -360,6 +407,10 @@ func _process_phase_1(delta: float) -> void:
 	if cluster and cluster.bubbles_above_spawn_line_count() == 0:
 		_enter_transition("cluster_cleared")
 		return
+	# Rule: cluster only descends when a new row spawns (handled inside
+	# Cluster._grow_top_row, which tweens existing bubbles down by ROW_HEIGHT_PX).
+	# Previously stages 4+ ran a time-based descent and stage 5 added a boss shake;
+	# both violated the rule by moving the cluster without spawning new rows.
 	if _phase1_time_remaining <= 0:
 		if cluster: cluster.sweep_all()
 		_enter_transition("time_cap")
@@ -408,6 +459,8 @@ func _process_phase_2(delta: float) -> void:
 	if _phase2_time_remaining <= 0:
 		_fail_stage("phase2_cap")
 		return
+	# Refresh wave progress bar (cheap — one list scan).
+	_refresh_wave_progress()
 	# Stage-clear grace timer (started by lane.lane_cleared once wave queue is empty).
 	if _no_enemy_timer > 0:
 		_no_enemy_timer -= delta
@@ -420,7 +473,11 @@ func _process_phase_2(delta: float) -> void:
 func _on_bubble_fired(_bubble: Bubble, _angle_deg: float, _time_to_fire_ms: int) -> void:
 	if _phase != Phase.PHASE_1: return
 	_bubbles_fired += 1
-	_pending_descent_rows += GameConfig.get_stage_descent_rows_per_shot(stage_num)
+	# Move-budget model: each shot costs 1 move. Transition fires once the
+	# in-flight bubble resolves (handled in _on_bubble_resolved) so a final
+	# match still counts.
+	_moves_remaining = max(0, _moves_remaining - 1)
+	_refresh_moves_label()
 
 func _on_match_popped(color: int, match_size: int, chain_count: int, _positions: Array, hero_colors: Array) -> void:
 	_total_pops += 1
@@ -429,9 +486,12 @@ func _on_match_popped(color: int, match_size: int, chain_count: int, _positions:
 	# in the cleared group, each spawning a unit of its own color (red hero
 	# bubble → Fire Knight, blue → Ice Mage, etc.). Tier still scales with the
 	# overall match size so chaining hero bubbles into bigger matches matters.
+	# §3.4 tier thresholds: 3-5 = Bronze, 6-9 = Silver, 10+ = Gold (widened 2026-05-13).
+	# Spawn-Gold now rare — Color Bomb on stages 4-5 or a 10-bubble chain.
+	# Merge ladder is the primary path to Gold (see §3.5.1).
 	var tier: String = "bronze"
-	if match_size >= 5: tier = "gold"
-	elif match_size == 4: tier = "silver"
+	if match_size >= GameConfig.tier_gold_match_threshold: tier = "gold"
+	elif match_size >= GameConfig.tier_silver_match_threshold: tier = "silver"
 	var spawn_col: int = _column_for_match(_positions)
 	var spawned: Array = []
 	# §4.2 Twin Souls — every hero drop is doubled (1 → 2).
@@ -445,7 +505,6 @@ func _on_match_popped(color: int, match_size: int, chain_count: int, _positions:
 	if RunState.boon_hero_synergy:
 		lane.apply_hero_synergy()
 	Telemetry.log_match_pop(match_size, color, chain_count, spawned)
-	_pending_descent_relief += GameConfig.cluster_descent_pop_relief_rows
 	# §3.5 color frenzy: full-clear of any color in Phase 1 stamps a persistent
 	# +color_frenzy_buff_pct buff onto every hero of that color when Phase 2 starts.
 	# Detection runs AFTER the pop has cleared this color's bubbles from the grid.
@@ -468,18 +527,19 @@ func _column_for_match(positions: Array) -> int:
 	return int(float(sum) / float(positions.size()))
 
 func _on_bubble_resolved(_was_pop: bool) -> void:
-	var net: int = _pending_descent_rows - _pending_descent_relief
-	_pending_descent_rows = 0
-	_pending_descent_relief = 0
 	# Cluster's active-color set is now post-pop; re-validate the cannon queue so
 	# we don't keep showing colors no longer present in the cluster.
 	if cannon:
 		cannon.refresh_queue_against_cluster()
-	if cluster == null or _phase != Phase.PHASE_1: return
-	if net > 0:
-		cluster.descend_rows(net)
-	elif net < 0:
-		cluster.refund_descent_rows(-net)
+	if _phase != Phase.PHASE_1: return
+	# Move-budget model: once the final shot resolves and the budget is gone,
+	# end Phase 1. (Cluster-cleared end is still handled in _process_phase_1.)
+	# Leftover bubbles are swept on the way out so they don't sit in P2 visually.
+	# TODO concept.md §3.5: leftover bubbles SHOULD convert to enemies at this point
+	# (combat-design.md OQ8 = NO for v1, but concept.md is now authoritative).
+	if _moves_remaining <= 0 and cluster and cluster.bubbles_above_spawn_line_count() > 0:
+		cluster.sweep_all()
+		_enter_transition("budget_exhausted")
 
 func _on_bubble_lost_below_line(color: int, _col: int, source: String) -> void:
 	_bubbles_lost += 1
@@ -489,7 +549,6 @@ func _on_enemy_reached_cannon(hp_damage: int) -> void:
 	if _phase != Phase.PHASE_2: return
 	_enemies_leaked += 1
 	player_hp = max(0, player_hp - hp_damage)
-	hud_hp_bar.value = player_hp
 	_update_base_visuals()
 	_punch_base()
 	Vfx.screen_shake(self, 18.0, 0.32)
@@ -567,8 +626,10 @@ func _on_lane_cleared() -> void:
 func _clear_stage() -> void:
 	_phase = Phase.STAGE_CLEAR
 	_stage_active = false
+	_set_wave_progress_visible(false)
 	if cannon: cannon.set_input_enabled(false)
 	if lane: lane.combat_enabled = false
+	_spawn_line_set_phase(Phase.STAGE_CLEAR)
 	_p2_ms = Time.get_ticks_msec() - _phase_start_ms
 	Telemetry.log_phase2_end(stage_num, _p2_ms, "clear",
 		player_hp, _enemies_killed, _enemies_leaked, 0)
@@ -595,8 +656,10 @@ func _fail_stage(reason: String) -> void:
 	var prior_phase: int = _phase
 	_phase = Phase.STAGE_FAIL
 	_stage_active = false
+	_set_wave_progress_visible(false)
 	if cannon: cannon.set_input_enabled(false)
 	if lane: lane.combat_enabled = false
+	_spawn_line_set_phase(Phase.STAGE_FAIL)
 	if prior_phase == Phase.PHASE_2 or reason == "hp" or reason == "phase2_cap":
 		_p2_ms = Time.get_ticks_msec() - _phase_start_ms
 		Telemetry.log_phase2_end(stage_num, _p2_ms, "fail",
@@ -655,6 +718,98 @@ func _setup_phase_banner() -> void:
 	_phase_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_phase_banner.visible = false
 	add_child(_phase_banner)
+
+# ============================================================
+# Wave progress bar (Phase 2 only) — tells the player how much of the wave
+# has been spawned so they can pace themselves. "ENEMIES LEFT" is more honest
+# than "spawned" because it includes both queued + still-alive on lane.
+# ============================================================
+func _setup_wave_progress() -> void:
+	_wave_bar_bg = ColorRect.new()
+	_wave_bar_bg.name = "WaveBarBg"
+	_wave_bar_bg.color = Color(0, 0, 0, 0.55)
+	_wave_bar_bg.position = Vector2(_WAVE_BAR_LEFT, _WAVE_BAR_Y)
+	_wave_bar_bg.size = Vector2(_WAVE_BAR_RIGHT - _WAVE_BAR_LEFT, _WAVE_BAR_HEIGHT)
+	_wave_bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_wave_bar_bg.visible = false
+	add_child(_wave_bar_bg)
+	_wave_bar_fill = ColorRect.new()
+	_wave_bar_fill.name = "WaveBarFill"
+	_wave_bar_fill.color = Color(0.95, 0.55, 0.25, 0.95)
+	_wave_bar_fill.position = Vector2(_WAVE_BAR_LEFT, _WAVE_BAR_Y)
+	_wave_bar_fill.size = Vector2(_WAVE_BAR_RIGHT - _WAVE_BAR_LEFT, _WAVE_BAR_HEIGHT)
+	_wave_bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_wave_bar_fill.visible = false
+	add_child(_wave_bar_fill)
+	_wave_progress_label = Label.new()
+	_wave_progress_label.name = "WaveProgressLabel"
+	_wave_progress_label.position = Vector2(_WAVE_BAR_RIGHT + 14.0, _WAVE_BAR_Y - 8.0)
+	_wave_progress_label.size = Vector2(160.0, 24.0)
+	_wave_progress_label.add_theme_font_size_override("font_size", 16)
+	_wave_progress_label.add_theme_color_override("font_color", Color(0.95, 0.86, 0.62, 1))
+	_wave_progress_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_wave_progress_label.add_theme_constant_override("outline_size", 3)
+	_wave_progress_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_wave_progress_label.visible = false
+	add_child(_wave_progress_label)
+
+func _setup_moves_label() -> void:
+	# Top-left HUD moves counter for Phase 1 ("MOVES 10"). Hidden in P2.
+	# Replaces the old HP bar in HUDTop — HP is shown on the base wall now.
+	_moves_label = Label.new()
+	_moves_label.name = "MovesLabel"
+	_moves_label.add_theme_font_size_override("font_size", 28)
+	_moves_label.add_theme_color_override("font_color", Color(1, 0.95, 0.6))
+	_moves_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_moves_label.add_theme_constant_override("outline_size", 4)
+	_moves_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_moves_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_moves_label.position = Vector2(30, 42)
+	_moves_label.size = Vector2(260, 36)
+	_moves_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if has_node("HUDTop"):
+		$HUDTop.add_child(_moves_label)
+	else:
+		add_child(_moves_label)
+
+func _refresh_moves_label() -> void:
+	if _moves_label == null: return
+	_moves_label.text = "MOVES %d" % _moves_remaining
+	_moves_label.visible = (_phase == Phase.PHASE_1)
+	# Flash red when low.
+	if _moves_remaining <= 3:
+		_moves_label.add_theme_color_override("font_color", Color(1, 0.45, 0.4))
+	else:
+		_moves_label.add_theme_color_override("font_color", Color(1, 0.95, 0.6))
+
+func _set_wave_progress_visible(on: bool) -> void:
+	if _wave_bar_bg != null: _wave_bar_bg.visible = on
+	if _wave_bar_fill != null: _wave_bar_fill.visible = on
+	if _wave_progress_label != null: _wave_progress_label.visible = on
+
+# Remaining = enemies still in the spawn queue + enemies alive on the lane.
+# Boss (if pending or alive) counts as one extra. Updates the fill width to
+# reflect the fraction killed/leaked vs the original wave size.
+func _refresh_wave_progress() -> void:
+	if _wave_size_total <= 0 or _wave_bar_fill == null: return
+	var alive: int = 0
+	if lane != null:
+		for e in lane._enemies:
+			if e != null and is_instance_valid(e):
+				alive += 1
+	var queued: int = _wave_queue.size()
+	var remaining: int = queued + alive
+	var resolved: int = max(0, _wave_size_total - remaining)
+	var frac: float = clamp(float(resolved) / float(_wave_size_total), 0.0, 1.0)
+	var full_width: float = _WAVE_BAR_RIGHT - _WAVE_BAR_LEFT
+	var sz: Vector2 = _wave_bar_fill.size
+	sz.x = full_width * frac
+	_wave_bar_fill.size = sz
+	if _wave_progress_label != null:
+		var label_text: String = "ENEMIES %d / %d" % [resolved, _wave_size_total]
+		if _boss_pending or _boss_alive:
+			label_text += " + BOSS"
+		_wave_progress_label.text = label_text
 
 func _show_banner(text: String, duration_sec: float) -> void:
 	if _phase_banner == null: return

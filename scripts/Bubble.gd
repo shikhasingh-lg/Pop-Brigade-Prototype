@@ -24,6 +24,10 @@ var _fill_color: Color = Color(1, 1, 1, 1)
 var _texture: Texture2D = null
 
 const BUBBLE_RADIUS := 32.0
+# Snap/collision radius is smaller than the visual radius so a ball can thread
+# a perceived gap between two cluster bubbles without grazing them. Bubble.tscn's
+# CollisionShape2D must match this value. Used by Cannon's trajectory preview too.
+const ATTACH_RADIUS := 28.0
 
 # Visual radius is larger than collision radius because the 256² texture has
 # transparent padding around the bubble. Tweak _VISUAL_OVERSIZE if the bubbles

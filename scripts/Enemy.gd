@@ -157,10 +157,9 @@ func _process(delta: float) -> void:
 		if _slow_timer <= 0:
 			_slow_factor = 1.0
 	_move_timer += delta * _slow_factor
-	# Fast "drop-in" travel while above the spawn line (lane_row < 0); switch
-	# to color-stat speed once the enemy hits row 0 (the spawn line / hero row).
-	var effective_speed: float = Lane.ENEMY_FAST_SEC_PER_CELL if lane_row < 0 else speed_sec_per_cell
-	if _move_timer >= effective_speed:
+	# Enemies keep the fast drop-in pace after crossing the battle line — no
+	# slowdown at row 0. (apply_slow still works for Blue hero's debuff.)
+	if _move_timer >= Lane.ENEMY_FAST_SEC_PER_CELL:
 		_move_timer = 0.0
 		_advance_cell()
 
@@ -177,16 +176,27 @@ func _advance_cell() -> void:
 		target_pos = lane_ref.cell_to_local_pos(lane_row, lane_col)
 	else:
 		target_pos = position + Vector2(0, Lane.CELL_H)
-	# Fast-mode tween (while still above row 0) must finish before the next
-	# advance fires (Lane.ENEMY_FAST_SEC_PER_CELL apart) — use a tight 0.18s.
-	var tween_dur: float = 0.18 if lane_row < 0 else min(0.25, speed_sec_per_cell * 0.4)
+	# Tween must finish before the next advance fires (ENEMY_FAST_SEC_PER_CELL apart).
+	var tween_dur: float = 0.18
 	var tw := create_tween()
 	tw.tween_property(self, "position", target_pos, tween_dur) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 func take_damage(amount: int, source_color: int) -> void:
+	# Hit-stop on heavy or fatal hits — gated globally in Vfx.hit_stop().
+	# Heavy = ≥30% of max HP in one shot. Bosses always qualify on kill.
+	var is_heavy: bool = max_hp > 0 and amount >= int(round(float(max_hp) * 0.30))
+	var will_kill: bool = (hp - amount) <= 0
+	if is_heavy or will_kill:
+		Vfx.hit_stop()
 	hp -= amount
 	if hp <= 0:
+		# Death burst — parent on Lane (our parent), not self, so it outlives
+		# our queue_free() one line later.
+		var burst_color: Color = Vfx.color_for_bubble(color)
+		if is_boss: burst_color = Color(1.0, 0.85, 0.4)
+		if get_parent() != null:
+			Vfx.death_burst(get_parent(), global_position, burst_color)
 		Telemetry.log_enemy_death(_enemy_id, color, source_color,
 			Time.get_ticks_msec() - _spawn_ms)
 		emit_signal("died", _enemy_id, color, source_color,

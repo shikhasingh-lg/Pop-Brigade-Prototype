@@ -40,15 +40,20 @@ const COLOR_HEX := {
 @export var cluster_start_rows_s1_s2: int = 3
 @export var cluster_start_rows_s3_s4: int = 5
 @export var cluster_start_rows_s5:    int = 7   # boss
-@export var cluster_descent_rate_sec: float = 8.0   # legacy time-based; unused since shot-triggered descent
+@export var cluster_descent_rate_sec: float = 8.0   # legacy time-based; unused
 @export var cluster_descent_pause_after_pop_sec: float = 1.0   # legacy; unused
 @export var cluster_grow_trigger_misses: int = 8    # adds 1 row at top
 @export var bubble_diameter_px: int = 72        # at 720-wide reference
-# Shot-triggered descent (idle pacing — cluster only moves when player fires)
-@export var cluster_descent_rows_per_shot_s1_s2: int = 2   # stage 1-2: ~6 shots to first conversion
-@export var cluster_descent_rows_per_shot_s3_s4: int = 3   # stage 3-4: ~4 shots
-@export var cluster_descent_rows_per_shot_s5:    int = 3   # boss: ~3 shots
-@export var cluster_descent_pop_relief_rows: int = 1       # rows refunded when a shot results in a pop
+# Legacy shot-triggered descent — superseded by move-budget model (concept.md §3.2).
+# Kept for telemetry / fall-back tuning; gameplay no longer reads these.
+@export var cluster_descent_rows_per_shot_s1_s2: int = 0
+@export var cluster_descent_rows_per_shot_s3_s4: int = 0
+@export var cluster_descent_rows_per_shot_s5:    int = 0
+@export var cluster_descent_pop_relief_rows: int = 0
+
+# Move budget per stage (concept.md §3.2 + concept.md:104-109).
+# Phase 1 ends when budget hits 0; leftover bubbles become enemies at P2 start.
+@export var move_budget_per_stage: Array[int] = [10, 12, 12, 14, 16]
 
 # ============================================================
 # §3.3 — Aim & fire
@@ -70,6 +75,15 @@ const COLOR_HEX := {
 @export var silver_dmg: int = 20
 @export var gold_hp:   int = 200
 @export var gold_dmg:  int = 30
+
+# Match-size → tier thresholds (§3.4).
+# Bronze = match_size < silver_threshold (3..5).
+# Silver = match_size in [silver_threshold, gold_threshold) (6..9).
+# Gold   = match_size >= gold_threshold (10+).
+# Spawn-Gold is rare under these thresholds — usually a Color Bomb on stages 4-5.
+# The merge ladder (B+B → S, S+S → G) is the primary path to Gold.
+@export var tier_silver_match_threshold: int = 6
+@export var tier_gold_match_threshold: int = 10
 
 # Class behavior — color → class mapping is locked.
 # See combat-design.md §2 for per-class targeting zones + VFX.
@@ -131,9 +145,10 @@ const COLOR_HEX := {
 @export var color_bomb_cadence_shots_min: int = 12
 @export var color_bomb_cadence_shots_max: int = 18
 # Hero bubbles: matching one spawns a hero of its color. Regular matches no
-# longer spawn heroes — only hero bubbles do. Count grows ~2-3 per stage so
-# later stages can field a bigger army.
-@export var hero_bubbles_per_stage: Array[int] = [3, 5, 8, 10, 13]
+# longer spawn heroes — only hero bubbles do. Count is rolled per stage from
+# a weighted 1-4 distribution: P(1)=20%, P(2)=30%, P(3)=30%, P(4)=20%. Same
+# distribution every stage — scarcity stays consistent across the run.
+@export var hero_bubble_count_weights: Array[float] = [0.20, 0.30, 0.30, 0.20]
 @export var hero_bubble_grow_chance: float = 0.0   # per bubble via _grow_top_row (off by default)
 
 # ============================================================
@@ -204,14 +219,34 @@ func get_stage_start_rows(stage_num: int) -> int:
 	if stage_num <= 4: return cluster_start_rows_s3_s4
 	return cluster_start_rows_s5
 
-func get_hero_bubble_count(stage_num: int) -> int:
-	var idx: int = clamp(stage_num - 1, 0, hero_bubbles_per_stage.size() - 1)
-	return hero_bubbles_per_stage[idx]
+func get_hero_bubble_count(_stage_num: int) -> int:
+	# Weighted roll over counts 1..N where N = weights.size(). Weights need not sum
+	# to 1 — we normalize via running cumulative. Falls back to 1 if weights empty.
+	if hero_bubble_count_weights.is_empty():
+		return 1
+	var total: float = 0.0
+	for w in hero_bubble_count_weights:
+		total += w
+	if total <= 0.0:
+		return 1
+	var roll: float = randf() * total
+	var acc: float = 0.0
+	for i in range(hero_bubble_count_weights.size()):
+		acc += hero_bubble_count_weights[i]
+		if roll <= acc:
+			return i + 1
+	return hero_bubble_count_weights.size()
 
 func get_stage_descent_rows_per_shot(stage_num: int) -> int:
+	# Legacy: shot-triggered descent disabled in favour of move-budget model.
+	# Returns 0 for all stages so any stragglers calling this are no-ops.
 	if stage_num <= 2: return cluster_descent_rows_per_shot_s1_s2
 	if stage_num <= 4: return cluster_descent_rows_per_shot_s3_s4
 	return cluster_descent_rows_per_shot_s5
+
+func get_stage_move_budget(stage_num: int) -> int:
+	var idx: int = clamp(stage_num - 1, 0, move_budget_per_stage.size() - 1)
+	return move_budget_per_stage[idx]
 
 func get_stage_spawn_rate_sec(stage_num: int) -> float:
 	match stage_num:

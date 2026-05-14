@@ -45,7 +45,7 @@ const BUBBLE_RADIUS := 32.0
 const FIELD_WIDTH := 720.0
 const TOP_BOUND_Y := 120.0
 # On-deck swap UI rect (matches MatchScene.tscn HUDBottom geometry, in world px).
-const QUEUE_SWAP_HIT_RECT := Rect2(370, 1440, 80, 70)
+const QUEUE_SWAP_HIT_RECT := Rect2(550, 1440, 90, 70)
 
 # Aim-ring UX (visible guide ring around the cannon)
 # Player drags anywhere; aim angle = atan2(touch - cannon). The ring + knob give
@@ -89,6 +89,7 @@ func _ready() -> void:
 	current_color = color_palette[randi() % color_palette.size()]
 	on_deck_color = color_palette[randi() % color_palette.size()]
 	_refresh_queue_visuals()
+	_refresh_bomb_state()
 	call_deferred("_resolve_cluster")
 	_ensure_aim_overlay()
 	queue_redraw()  # paint the idle aim ring
@@ -225,20 +226,52 @@ func _release_aim(touch_pos: Vector2) -> void:
 	try_fire(_current_aim_angle_deg, false, current_stage_num)
 	queue_redraw()
 
-# Draw the always-on aim ring + active knob in cannon-local space.
+# Draw the always-on aim ring + active knob + rotating muzzle wedge.
 # Brighter ring + visible knob while aiming; dim guide ring when idle.
+# The muzzle is a small triangle attached to the cannon edge that always points
+# at the current aim angle — sells "the cannon points where you aim."
 func _draw() -> void:
 	var ring_col: Color = RING_COLOR_ACTIVE if _aiming else RING_COLOR_IDLE
 	draw_arc(Vector2.ZERO, AIM_RING_RADIUS,
 		deg_to_rad(AIM_RING_START_DEG), deg_to_rad(AIM_RING_END_DEG),
 		48, ring_col, AIM_RING_WIDTH, true)
+	# Muzzle wedge — always on (idle or aiming), defaults to straight up.
+	_draw_muzzle(_current_aim_angle_deg)
 	if _aiming:
 		var knob_pos: Vector2 = Vector2.from_angle(deg_to_rad(_current_aim_angle_deg)) * AIM_RING_RADIUS
 		draw_circle(knob_pos, KNOB_RADIUS, KNOB_COLOR)
 
+const MUZZLE_BASE_DIST := 38.0   # touches cannon body edge (CannonBody is 80x80, half=40)
+const MUZZLE_TIP_DIST  := 64.0   # 26px out from edge
+const MUZZLE_HALF_WIDTH := 14.0
+const MUZZLE_FILL := Color(0.92, 0.78, 0.40, 1.0)
+const MUZZLE_OUTLINE := Color(0.18, 0.14, 0.06, 0.95)
+
+func _draw_muzzle(angle_deg: float) -> void:
+	var dir: Vector2 = Vector2.from_angle(deg_to_rad(angle_deg))
+	var perp: Vector2 = Vector2(-dir.y, dir.x)
+	var base: Vector2 = dir * MUZZLE_BASE_DIST
+	var tip: Vector2 = dir * MUZZLE_TIP_DIST
+	var poly := PackedVector2Array([
+		tip,
+		base + perp * MUZZLE_HALF_WIDTH,
+		base - perp * MUZZLE_HALF_WIDTH,
+	])
+	draw_colored_polygon(poly, MUZZLE_FILL)
+	# Outline so the muzzle reads against bright cluster colors.
+	draw_polyline(PackedVector2Array([poly[0], poly[1], poly[2], poly[0]]),
+		MUZZLE_OUTLINE, 2.0, true)
+
 # ============================================================
-# §3.3 — Aim trajectory polyline (world-space; ricochets off side walls)
+# §3.3 — Aim trajectory polyline (world-space; ricochets off side walls,
+# terminates at first cluster contact or top bound)
 # ============================================================
+# The preview must use the SAME collision model as the real ball, otherwise the
+# trajectory shows a landing point the ball can never reach. The real ball
+# (Bubble._on_area_entered) attaches at the first cluster Area2D overlap, where
+# overlap = centers within (Bubble.ATTACH_RADIUS + Bubble.ATTACH_RADIUS). We
+# mirror that here: a circle-vs-circle sweep against every attached cluster
+# bubble, taking the nearest of wall hit / top hit / cluster hit each segment.
 func _compute_aim_polyline(angle_deg: float, max_ricochets: int) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	var pos := global_position
@@ -254,12 +287,15 @@ func _compute_aim_polyline(angle_deg: float, max_ricochets: int) -> PackedVector
 		if dir.x < 0: t_left  = (BUBBLE_RADIUS - pos.x) / dir.x
 		if dir.x > 0: t_right = (FIELD_WIDTH - BUBBLE_RADIUS - pos.x) / dir.x
 		if dir.y < 0: t_top   = (TOP_BOUND_Y - pos.y) / dir.y
-		var t: float = min(t_left, min(t_right, t_top))
+		var t_wall: float = min(t_left, t_right)
+		var t_cluster: float = _segment_first_cluster_hit(pos, dir)
+		var t: float = min(t_wall, min(t_top, t_cluster))
 		if t == INF or t <= 0:
 			break
 		var hit: Vector2 = pos + dir * t
 		pts.append(hit)
-		if is_equal_approx(t, t_top):
+		# Cluster contact or top bound = terminal (no further ricochet).
+		if t == t_cluster or t == t_top:
 			break
 		if remaining <= 0:
 			break  # no more ricochets allowed in preview
@@ -267,6 +303,37 @@ func _compute_aim_polyline(angle_deg: float, max_ricochets: int) -> PackedVector
 		remaining -= 1
 		pos = hit
 	return pts
+
+# Distance along (pos, dir) at which a ball of Bubble.ATTACH_RADIUS first
+# overlaps a stationary cluster bubble. Returns INF when no bubble is hit.
+# Solves |(pos + dir*t) - C|² = R² where R = 2 * ATTACH_RADIUS (sum of radii).
+func _segment_first_cluster_hit(pos: Vector2, dir: Vector2) -> float:
+	if _cluster_ref == null:
+		return INF
+	var sum_r: float = Bubble.ATTACH_RADIUS * 2.0
+	var sum_r_sq: float = sum_r * sum_r
+	var best_t: float = INF
+	for child in _cluster_ref.get_children():
+		if not (child is Bubble):
+			continue
+		var b: Bubble = child
+		if b.in_flight:
+			continue
+		var d: Vector2 = pos - b.global_position
+		# Quadratic at² + bt + c = 0 with a = dir·dir (= 1), b = 2 d·dir, c = d·d - R²
+		var b_coef: float = 2.0 * d.dot(dir)
+		var c_coef: float = d.dot(d) - sum_r_sq
+		var disc: float = b_coef * b_coef - 4.0 * c_coef
+		if disc < 0.0:
+			continue
+		var sqrt_disc: float = sqrt(disc)
+		# Smaller positive root is the entry point.
+		var t0: float = (-b_coef - sqrt_disc) * 0.5
+		var t1: float = (-b_coef + sqrt_disc) * 0.5
+		var t_hit: float = t0 if t0 > 0.001 else t1
+		if t_hit > 0.001 and t_hit < best_t:
+			best_t = t_hit
+	return best_t
 
 # ============================================================
 # §3.3 — Fire
@@ -292,11 +359,33 @@ func try_fire(aim_angle_deg: float, queue_swap_used: bool, stage_num: int) -> vo
 	emit_signal("bubble_fired", b, aim_angle_deg, now_ms - _aim_touch_start_ms)
 	_advance_queue()
 	_shot_count_since_last_bomb += 1
+	_refresh_bomb_state()
 
 func _advance_queue() -> void:
 	current_color = on_deck_color
 	on_deck_color = _draw_from_palette()
 	_refresh_queue_visuals()
+	_refresh_bomb_state()
+
+# Color-bomb pulse on the loaded bubble. True when the NEXT fire will produce
+# a bomb (matches _is_color_bomb's gate but read-only). Driven by _process.
+var _current_is_bomb_loaded: bool = false
+var _bomb_pulse_t: float = 0.0
+
+func _refresh_bomb_state() -> void:
+	_current_is_bomb_loaded = _shot_count_since_last_bomb >= _next_bomb_at_shot
+	if not _current_is_bomb_loaded and _current_sprite != null:
+		_current_sprite.modulate = Color(1, 1, 1, 1)
+
+func _process(delta: float) -> void:
+	if not _current_is_bomb_loaded or _current_sprite == null: return
+	_bomb_pulse_t += delta
+	# Rainbow hue cycle + brightness pulse — reads as "special" without needing
+	# new art. 0.6 cycles/sec hue rotation, 2Hz brightness pulse.
+	var hue: float = fmod(_bomb_pulse_t * 0.6, 1.0)
+	var rainbow: Color = Color.from_hsv(hue, 0.85, 1.0)
+	var pulse: float = 1.0 + sin(_bomb_pulse_t * TAU * 2.0) * 0.25
+	_current_sprite.modulate = Color(rainbow.r * pulse, rainbow.g * pulse, rainbow.b * pulse, 1.0)
 
 # Called by MatchScene after Cluster.bubble_resolved — the in-flight shot has
 # now attached/popped, so the cluster's active-color set reflects post-shot

@@ -29,7 +29,7 @@ BubbleRoster.get_hero_texture(GameConfig.BubbleColor.RED)  # white bg
 
 ## How to use in the cluster
 
-`Bubble.gd` now has an `is_hero_bubble: bool` flag (defaults `false` — no behavior change for existing code). When set true, the bubble renders the hero-bubble art instead of the regular bubble art.
+`Bubble.gd` has an `is_hero_bubble: bool` flag. When set true, the bubble renders the hero-bubble art instead of the regular bubble art **and** spawns a hero of that color on match.
 
 **Set on spawn:**
 ```gdscript
@@ -43,11 +43,16 @@ b.is_hero_bubble = true
 existing_bubble.set_hero_bubble(true)
 ```
 
-## What's NOT yet wired (gameplay side)
+## Gameplay wiring (live)
 
-Right now `is_hero_bubble` only affects rendering. To make hero bubbles actually spawn a hero on match, edit the match-handling path in `MatchScene.gd` / `Cluster.gd`:
-- When a match clears, if any bubble in the cleared group had `is_hero_bubble = true`, call `lane.spawn_hero(color, tier, col, "hero_bubble")` (already exists for regular matches).
-- Decide the **placement rule** — pre-seeded in the cluster on stage start? Converted from random regular bubbles every N shots? Spawned in Phase 2 only? This is a design call, not a wiring call.
+Hero spawning is now gated on hero bubbles — **regular matches no longer spawn heroes**.
+
+- **Placement rule:** `Cluster.setup_for_stage` calls `_seed_hero_bubbles(N)` after building the grid. `N` is rolled per stage from `GameConfig.hero_bubble_count_weights` — default 1–4 with weights `[0.20, 0.30, 0.30, 0.20]` (P(1)=20%, P(2)=30%, P(3)=30%, P(4)=20%). Eligible cells exclude color bombs.
+- **Spawn trigger:** `Cluster._pop_match` collects the colors of any matched hero bubbles and ships them in the `match_popped` signal's `hero_colors: Array` arg. `MatchScene._on_match_popped` iterates that array and calls `lane.spawn_hero(hero_color, tier, spawn_col, "hero_bubble")` — one hero per hero bubble in the cleared group.
+- **Tier:** still scales with the overall match size (3 = bronze, 4 = silver, 5+ = gold), so chaining multiple hero bubbles into one match upgrades them all.
+- **Mid-stage refresh:** `GameConfig.hero_bubble_grow_chance` adds hero bubbles to top-row growth (defaults to `0.0` — off).
+
+Tuning knobs in `GameConfig.gd` under the `Specials` group.
 
 ## Reprocessing
 ```bash
