@@ -626,6 +626,10 @@ func druid_chain_heal(caster: Hero) -> int:
 		healed += 1
 	return healed
 
+# Public — front-most enemy in a column within reach. Used by tier lane-spread.
+func find_front_in_col(col: int, max_rows_up: int) -> Enemy:
+	return _scan_column(col, max_rows_up)
+
 func _scan_column(col: int, max_rows_up: int) -> Enemy:
 	if col < 0 or col >= COLS: return null
 	var best: Enemy = null

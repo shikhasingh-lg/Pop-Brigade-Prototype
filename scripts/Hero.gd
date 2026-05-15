@@ -249,14 +249,31 @@ func _hp_ratio() -> float:
 	if m <= 0: return 1.0
 	return float(hp) / float(m)
 
-# Tier-based volley: Bronze 1 shot, Silver 2 shots, Gold 3 shots. All shots
-# in a volley target the SAME enemy. If the target dies mid-volley, remaining
-# shots are skipped (the volley is locked to the primary target).
+# Tier model (new): upgrades buy BREADTH + VOLLEY, not raw stats.
+#   Bronze: 1 shot at primary, lane spread 0  (target lane only)
+#   Silver: 1 shot at primary + 1 shot in each adjacent lane (3 lanes hit, 1 shot each)
+#   Gold:   2 shots at primary + 1 shot in each adjacent lane (3 lanes hit, primary gets the volley)
 func _tier_shot_count() -> int:
 	match tier:
-		"silver": return 2
-		"gold":   return 3
+		"gold":   return 2
 		_:        return 1
+
+func _tier_lane_spread() -> int:
+	match tier:
+		"silver", "gold": return 1
+		_:                return 0
+
+# Fire one shot at the front-most enemy in each adjacent lane (no further volley).
+# fn(target) is the per-class single-shot helper.
+func _fire_lane_spread_shots(reach_rows: int, fn: Callable) -> void:
+	if lane_ref == null: return
+	var spread: int = _tier_lane_spread()
+	if spread <= 0: return
+	for off in [-spread, spread]:
+		var col: int = lane_col + off
+		var t: Enemy = lane_ref.find_front_in_col(col, reach_rows)
+		if t != null and is_instance_valid(t):
+			fn.call(t)
 
 # ----- Fire Knight (RED): cone + chance to cleave row neighbors -----
 func _fire_red() -> void:
@@ -271,6 +288,8 @@ func _fire_red() -> void:
 		var captured: Enemy = target
 		get_tree().create_timer(0.10 * float(i)).timeout.connect(func():
 			if is_instance_valid(captured): _red_slash_shot(captured))
+	# Silver+ lane spread — one slash in each adjacent lane.
+	_fire_lane_spread_shots(GameConfig.red_cone_rows, _red_slash_shot)
 	# Cleave RNG fires once per attack tick (not per shot) on the primary target.
 	if randf() < GameConfig.red_cleave_chance:
 		_red_cleave_proc(target)
@@ -328,6 +347,8 @@ func _fire_blue() -> void:
 		var captured: Enemy = target
 		get_tree().create_timer(0.12 * float(i)).timeout.connect(func():
 			if is_instance_valid(captured): _blue_lob_shot(captured))
+	# Silver+ lane spread — one lob in each adjacent lane.
+	_fire_lane_spread_shots(GameConfig.blue_reach_rows, _blue_lob_shot)
 
 # One ice-lob on one target — independent crystal + AoE splash + slow per shot.
 func _blue_lob_shot(target: Enemy) -> void:
@@ -364,6 +385,8 @@ func _fire_yellow() -> void:
 		var captured: Enemy = target
 		get_tree().create_timer(0.08 * float(i)).timeout.connect(func():
 			if is_instance_valid(captured): _yellow_arrow_shot(captured))
+	# Silver+ lane spread — one arrow in each adjacent lane.
+	_fire_lane_spread_shots(GameConfig.yellow_reach_rows, _yellow_arrow_shot)
 
 # One arrow on one target — independent damage + VFX per shot.
 func _yellow_arrow_shot(target: Enemy) -> void:
@@ -808,6 +831,18 @@ func _fire_green() -> void:
 		# No enemy to hit, but still cast a heal pulse if any ally needs it.
 		lane_ref.druid_chain_heal(self)
 		return
+	_green_pulse_shot(target)
+	for i in range(1, _tier_shot_count()):
+		var captured: Enemy = target
+		get_tree().create_timer(0.10 * float(i)).timeout.connect(func():
+			if is_instance_valid(captured): _green_pulse_shot(captured))
+	# Silver+ lane spread — one pulse in each adjacent lane.
+	_fire_lane_spread_shots(GameConfig.green_reach_rows, _green_pulse_shot)
+	# Chain heal — fires on every attack tick (capped per ally per game-second).
+	lane_ref.druid_chain_heal(self)
+
+func _green_pulse_shot(target: Enemy) -> void:
+	if not is_instance_valid(target): return
 	var dmg: int = _damage_against(target, GameConfig.green_dmg_mult)
 	var is_crit: bool = target.color == color
 	var target_pos: Vector2 = target.position
@@ -819,26 +854,35 @@ func _fire_green() -> void:
 		Vfx.color_counter_badge(lane_ref, target_pos, Vfx.color_for_bubble(color))
 	_damage_dealt_total += dmg
 	Telemetry.log_hero_attack(_hero_id, target.get_instance_id(), dmg)
-	# Chain heal — fires on every attack tick (capped per ally per game-second).
-	lane_ref.druid_chain_heal(self)
 
 func _fire_purple() -> void:
 	if lane_ref == null: return
 	var target: Enemy = lane_ref.find_target_purple(self)
 	if target == null: return
+	_purple_smash_shot(target)
+	for i in range(1, _tier_shot_count()):
+		var captured: Enemy = target
+		get_tree().create_timer(0.12 * float(i)).timeout.connect(func():
+			if is_instance_valid(captured): _purple_smash_shot(captured))
+	# Silver+ lane spread — one smash in each adjacent lane (does not advance burst counter).
+	_fire_lane_spread_shots(GameConfig.purple_reach_rows, _purple_smash_shot)
+	# Burst counter — only the primary fire advances it so lane spread doesn't
+	# triple-stack the arcane burst cadence.
+	_wizard_attack_count += 1
+	if _wizard_attack_count >= GameConfig.purple_burst_every_n_hits:
+		_wizard_attack_count = 0
+		_wizard_arcane_burst(target)
+
+func _purple_smash_shot(target: Enemy) -> void:
+	if not is_instance_valid(target): return
 	var dmg: int = _damage_against(target, GameConfig.purple_dmg_mult)
 	var target_pos: Vector2 = target.position
-	# Big AOE smash visual.
 	_vfx_red_wedge((target.global_position - global_position).normalized(),
 		160.0, 60.0, Color(0.75, 0.45, 0.95, 0.40), 0.22)
 	target.take_damage(dmg, color)
 	_spawn_damage_number(target_pos, dmg, target.color == color)
 	_damage_dealt_total += dmg
 	Telemetry.log_hero_attack(_hero_id, target.get_instance_id(), dmg)
-	_wizard_attack_count += 1
-	if _wizard_attack_count >= GameConfig.purple_burst_every_n_hits:
-		_wizard_attack_count = 0
-		_wizard_arcane_burst(target)
 
 func _wizard_arcane_burst(primary: Enemy) -> void:
 	if lane_ref == null or not is_instance_valid(primary): return

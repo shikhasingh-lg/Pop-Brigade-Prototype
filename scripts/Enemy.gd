@@ -137,7 +137,7 @@ func _apply_color_stats() -> void:
 	# §3.10.4 realm + stage scalars.
 	base_hp *= GameConfig.get_realm_hp_mult(realm_num) * GameConfig.get_stage_hp_mult(stage_num)
 	base_dmg *= GameConfig.get_realm_dmg_mult(realm_num) * GameConfig.get_stage_dmg_mult(stage_num)
-	base_speed *= GameConfig.get_realm_speed_mult(realm_num)
+	base_speed *= GameConfig.get_realm_speed_mult(realm_num) * GameConfig.get_stage_speed_mult(stage_num)
 	# Boss overrides (any realm's S5 path + R5S3 mini-boss).
 	if is_boss:
 		if boss_hp_override > 0: base_hp = float(boss_hp_override)

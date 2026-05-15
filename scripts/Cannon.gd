@@ -270,6 +270,17 @@ const MUZZLE_HALF_WIDTH := 14.0
 const MUZZLE_FILL := Color(0.92, 0.78, 0.40, 1.0)
 const MUZZLE_OUTLINE := Color(0.18, 0.14, 0.06, 0.95)
 
+# Fire-feel juice
+const RECOIL_DISTANCE := 9.0
+const RECOIL_KICK_SEC := 0.04
+const RECOIL_RECOVER_SEC := 0.22
+const MUZZLE_FLASH_RADIUS := 30.0
+const MUZZLE_DIM_ALPHA := 0.40   # alpha at t=0 after fire; lerps to 1.0 by fire_rate_cap_sec
+var _recoil_origin: Vector2 = Vector2.ZERO
+var _recoil_origin_captured: bool = false
+var _recoil_tween: Tween = null
+var _queue_pop_tween: Tween = null
+
 func _draw_muzzle(angle_deg: float) -> void:
 	var dir: Vector2 = Vector2.from_angle(deg_to_rad(angle_deg))
 	var perp: Vector2 = Vector2(-dir.y, dir.x)
@@ -280,10 +291,20 @@ func _draw_muzzle(angle_deg: float) -> void:
 		base + perp * MUZZLE_HALF_WIDTH,
 		base - perp * MUZZLE_HALF_WIDTH,
 	])
-	draw_colored_polygon(poly, MUZZLE_FILL)
-	# Outline so the muzzle reads against bright cluster colors.
+	# Cooldown dim — muzzle fades back to full opacity by the time next shot is ready.
+	var cd: float = _cooldown_progress()
+	var fill := MUZZLE_FILL
+	fill.a *= lerp(MUZZLE_DIM_ALPHA, 1.0, cd)
+	var outline := MUZZLE_OUTLINE
+	outline.a *= lerp(MUZZLE_DIM_ALPHA, 1.0, cd)
+	draw_colored_polygon(poly, fill)
 	draw_polyline(PackedVector2Array([poly[0], poly[1], poly[2], poly[0]]),
-		MUZZLE_OUTLINE, 2.0, true)
+		outline, 2.0, true)
+
+func _cooldown_progress() -> float:
+	if fire_rate_cap_sec <= 0.001: return 1.0
+	var since: float = float(Time.get_ticks_msec() - _last_fire_ms) / 1000.0
+	return clamp(since / fire_rate_cap_sec, 0.0, 1.0)
 
 # ============================================================
 # §3.3 — Aim trajectory prediction (world-space; ricochets off side walls,
@@ -384,6 +405,7 @@ func try_fire(aim_angle_deg: float, queue_swap_used: bool, stage_num: int) -> vo
 	if (now_ms - _last_fire_ms) / 1000.0 < fire_rate_cap_sec:
 		return  # rate-capped
 	_last_fire_ms = now_ms
+	_apply_fire_juice(aim_angle_deg)
 	if _cluster_ref == null:
 		_resolve_cluster()
 		if _cluster_ref == null:
@@ -407,6 +429,39 @@ func _advance_queue() -> void:
 	on_deck_color = _draw_from_palette()
 	_refresh_queue_visuals()
 	_refresh_bomb_state()
+	_pop_loaded_bubble()
+
+# Fire juice — recoil kick + muzzle flash + queue pop-in.
+func _apply_fire_juice(aim_angle_deg: float) -> void:
+	var dir := Vector2.from_angle(deg_to_rad(aim_angle_deg))
+	# Recoil — capture rest position once, kick opposite of aim, settle back.
+	if not _recoil_origin_captured:
+		_recoil_origin = position
+		_recoil_origin_captured = true
+	if _recoil_tween != null and _recoil_tween.is_valid():
+		_recoil_tween.kill()
+	var kick: Vector2 = _recoil_origin + (-dir) * RECOIL_DISTANCE
+	_recoil_tween = create_tween()
+	_recoil_tween.tween_property(self, "position", kick, RECOIL_KICK_SEC) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_recoil_tween.tween_property(self, "position", _recoil_origin, RECOIL_RECOVER_SEC) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# Muzzle flash — colored burst at the tip in the fired bubble's color.
+	var tip_world: Vector2 = global_position + dir * MUZZLE_TIP_DIST
+	var flash_color: Color = _color_for_enum(current_color)
+	flash_color.a = 0.9
+	Vfx.pop_burst(_match_root(), tip_world, flash_color, MUZZLE_FLASH_RADIUS)
+	queue_redraw()
+
+func _pop_loaded_bubble() -> void:
+	if _current_sprite == null: return
+	# Cancel any in-flight pop so back-to-back fires don't stack weird scales.
+	if _queue_pop_tween != null and _queue_pop_tween.is_valid():
+		_queue_pop_tween.kill()
+	_current_sprite.scale = Vector2(0.55, 0.55)
+	_queue_pop_tween = _current_sprite.create_tween()
+	_queue_pop_tween.tween_property(_current_sprite, "scale", Vector2(1.0, 1.0), 0.18) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # Color-bomb pulse on the loaded bubble. True when the NEXT fire will produce
 # a bomb (matches _is_color_bomb's gate but read-only). Driven by _process.
@@ -419,6 +474,9 @@ func _refresh_bomb_state() -> void:
 		_current_sprite.modulate = Color(1, 1, 1, 1)
 
 func _process(delta: float) -> void:
+	# Drive the muzzle cooldown dim by repainting while the ramp is animating.
+	if _cooldown_progress() < 1.0:
+		queue_redraw()
 	if not _current_is_bomb_loaded or _current_sprite == null: return
 	_bomb_pulse_t += delta
 	# Rainbow hue cycle + brightness pulse — reads as "special" without needing

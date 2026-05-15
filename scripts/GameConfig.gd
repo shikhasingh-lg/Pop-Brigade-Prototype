@@ -88,8 +88,9 @@ const REALM_HERO_DENSITY_DIVISOR: Array = [8, 8, 9, 9, 10]
 # §3.10.4 enemy scaling per realm.
 const REALM_MULT_HP:       Array = [1.00, 1.35, 1.80, 2.40, 3.20]
 const REALM_MULT_DMG:      Array = [1.00, 1.35, 1.80, 2.40, 3.20]
-const REALM_MULT_SPEED:    Array = [1.00, 1.10, 1.20, 1.30, 1.40]
-const REALM_MULT_ATKRATE:  Array = [1.00, 1.10, 1.15, 1.20, 1.30]
+# NOTE: applied as sec_per_cell *= mult, so values < 1 = FASTER. R5 = ~27% faster than R1.
+const REALM_MULT_SPEED:    Array = [1.00, 0.94, 0.87, 0.80, 0.73]
+const REALM_MULT_ATKRATE:  Array = [1.00, 1.10, 1.20, 1.30, 1.42]
 
 # §8.x realm metadata
 const REALM_NAMES: Array = [
@@ -133,11 +134,11 @@ const BOSS_PHASE_B_COLORS: Array = [
 # ============================================================
 @export_group("Heroes — Tiers")
 @export var bronze_hp: int = 100
-@export var bronze_dmg: int = 10
+@export var bronze_dmg: int = 6
 @export var silver_hp: int = 150
-@export var silver_dmg: int = 20
+@export var silver_dmg: int = 8
 @export var gold_hp:   int = 200
-@export var gold_dmg:  int = 30
+@export var gold_dmg:  int = 12
 
 @export var tier_silver_match_threshold: int = 6
 @export var tier_gold_match_threshold: int = 10
@@ -223,8 +224,10 @@ const BOSS_PHASE_B_COLORS: Array = [
 @export var phaser_phase_interval_max_sec: float = 6.0
 @export var phaser_skip_rows: int = 1                # extra rows skipped
 # §3.10.4 — stage multipliers within realm.
-@export var stage_hp_mults: Array[float]  = [1.0, 1.1, 1.2, 1.35, 1.5]
-@export var stage_dmg_mults: Array[float] = [1.0, 1.0, 1.05, 1.1, 1.2]
+@export var stage_hp_mults: Array[float]  = [1.0, 1.2, 1.45, 1.75, 2.10]
+@export var stage_dmg_mults: Array[float] = [1.0, 1.1, 1.25, 1.4, 1.6]
+# sec/cell mult — lower = faster. ~20% faster by S5.
+@export var stage_speed_mults: Array[float] = [1.0, 0.95, 0.90, 0.85, 0.80]
 
 # ============================================================
 # §3.7 — Special bubbles
@@ -240,6 +243,8 @@ const BOSS_PHASE_B_COLORS: Array = [
 # ============================================================
 @export_group("Player & Stage")
 @export var stage_start_hp: int = 100
+# Tower HP scales per realm so endgame enemy DMG doesn't one-shot the base.
+const REALM_TOWER_HP: Array = [100, 130, 160, 200, 250]
 @export var stage_clear_no_enemies_sec: float = 2.0
 @export var coins_per_stage_clear: int = 50
 @export var boss_hp: int = 1000
@@ -442,6 +447,13 @@ func get_stage_dmg_mult(stage: int) -> float:
 	var i: int = clamp(stage - 1, 0, stage_dmg_mults.size() - 1)
 	return float(stage_dmg_mults[i])
 
+func get_stage_speed_mult(stage: int) -> float:
+	var i: int = clamp(stage - 1, 0, stage_speed_mults.size() - 1)
+	return float(stage_speed_mults[i])
+
+func get_realm_tower_hp(realm: int) -> int:
+	return int(REALM_TOWER_HP[clamp_realm(realm) - 1])
+
 # §3.10.4 boss HP/dmg per realm. Damage = 50 × realm_dmg_mult. HP = 1000 × realm_hp_mult × 1.5 boss bump.
 func get_realm_boss_hp(realm: int) -> int:
 	return int(round(float(boss_hp) * get_realm_hp_mult(realm) * boss_hp_mult))
@@ -501,14 +513,14 @@ func get_wave_composition(realm: int, stage: int) -> Array:
 	var PH := "phaser"
 	realm = clamp_realm(realm)
 	stage = clamp_stage(stage)
-	# §8.2 R1 — Skyline (matches v1 baseline)
+	# §8.2 R1 — Skyline (5/8/12/15/20 counts)
 	if realm == 1:
 		match stage:
 			1: return _w_color_x(R, W, 5)
-			2: return _w_color_x(R, W, 4) + _w_color_x(B, W, 2)
-			3: return _w_color_x(R, W, 4) + _w_color_x(B, W, 3) + _w_color_x(Y, W, 1) + [{"color": Y, "variant": RUN}]
-			4: return _w_color_x(R, W, 4) + [{"color": R, "variant": RUN}] + _w_color_x(B, W, 3) + _w_color_x(Y, W, 2) + [{"color": Y, "variant": BR}]
-			5: return _w_color_x(R, W, 4) + _w_color_x(R, RUN, 2) + _w_color_x(B, W, 4) + _w_color_x(Y, W, 2) + _w_color_x(Y, BR, 2)
+			2: return _w_color_x(R, W, 5) + _w_color_x(B, W, 3)
+			3: return _w_color_x(R, W, 5) + [{"color": R, "variant": RUN}] + _w_color_x(B, W, 3) + _w_color_x(Y, W, 2) + [{"color": Y, "variant": RUN}]
+			4: return _w_color_x(R, W, 5) + _w_color_x(R, RUN, 2) + _w_color_x(B, W, 4) + _w_color_x(Y, W, 3) + [{"color": Y, "variant": BR}]
+			5: return _w_color_x(R, W, 6) + _w_color_x(R, RUN, 3) + _w_color_x(B, W, 5) + _w_color_x(Y, W, 3) + _w_color_x(Y, BR, 3)
 	# §8.3 R2 — Storm Reach
 	if realm == 2:
 		match stage:

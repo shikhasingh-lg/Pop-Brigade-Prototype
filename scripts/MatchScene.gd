@@ -300,11 +300,12 @@ func start_stage(num: int, run_boons: Array, realm: int = 1) -> void:
 	# HP carries across stages within a realm. Stage 1 = entering a new realm
 	# (or new run) → fresh HP. Stages 2-5 → carry HP from the prior stage via
 	# RunState.run_player_hp (which is reset to 0 by begin_new_run).
+	var realm_tower_hp: int = GameConfig.get_realm_tower_hp(realm_num)
 	if num <= 1 or RunState.run_player_hp <= 0:
-		player_hp = GameConfig.stage_start_hp
+		player_hp = realm_tower_hp
 	else:
-		player_hp = min(RunState.run_player_hp, GameConfig.stage_start_hp)
-	_max_player_hp = GameConfig.stage_start_hp
+		player_hp = min(RunState.run_player_hp, realm_tower_hp)
+	_max_player_hp = realm_tower_hp
 	RunState.run_player_hp = player_hp
 	stage_start_ms = Time.get_ticks_msec()
 	_stage_active = true
@@ -518,7 +519,7 @@ func _process(delta: float) -> void:
 # under 25% the cadence roughly doubles for the "we're dying" read.
 func _tick_hp_pulse(delta: float) -> void:
 	if base_hp_bar_fill == null: return
-	var max_hp: float = float(GameConfig.stage_start_hp)
+	var max_hp: float = float(_max_player_hp)
 	if max_hp <= 0.0: return
 	var frac: float = clamp(float(player_hp) / max_hp, 0.0, 1.0)
 	if frac >= 0.5:
@@ -724,7 +725,7 @@ func _punch_base() -> void:
 # Reflect player_hp on the base: HP bar width, wall tint, crack alpha, smoke alpha.
 func _update_base_visuals() -> void:
 	if base_hp_bar_fill == null: return
-	var max_hp: float = float(GameConfig.stage_start_hp)
+	var max_hp: float = float(_max_player_hp)
 	var frac: float = clamp(float(player_hp) / max_hp, 0.0, 1.0)
 	# HP bar fill width.
 	var full_width: float = BASE_HP_BAR_RIGHT - BASE_HP_BAR_LEFT
