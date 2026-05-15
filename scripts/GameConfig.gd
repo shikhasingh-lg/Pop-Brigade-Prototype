@@ -153,20 +153,20 @@ const BOSS_PHASE_B_COLORS: Array = [
 @export var red_cleave_targets: int = 2
 # Ice Mage (BLUE) — column lob with AoE splash
 @export var blue_col_radius: int = 1
-@export var blue_reach_rows: int = 10
+@export var blue_reach_rows: int = 6
 @export var blue_fire_rate_sec: float = 1.0
 @export var blue_dmg_mult: float = 0.7
 @export var blue_aoe_radius_cells: float = 1.5
 @export var blue_slow_pct: float = 0.30
 @export var blue_slow_duration_sec: float = 2.0
 # Archer (YELLOW) — full-column snipe
-@export var yellow_reach_rows: int = 15
+@export var yellow_reach_rows: int = 10
 @export var yellow_fire_rate_sec: float = 0.8
 @export var yellow_dmg_mult: float = 1.4
 @export var yellow_execute_threshold: float = 0.30
 @export var yellow_execute_bonus: float = 0.50
 # Druid (GREEN, R3) — mid-range chain-heal support (§8.4)
-@export var green_reach_rows: int = 6
+@export var green_reach_rows: int = 5
 @export var green_col_radius: int = 1
 @export var green_fire_rate_sec: float = 0.7
 @export var green_dmg_mult: float = 0.9
@@ -174,7 +174,7 @@ const BOSS_PHASE_B_COLORS: Array = [
 @export var green_chain_heal_targets: int = 2
 @export var green_heal_per_hero_cap_per_sec: int = 15
 # Wizard (PURPLE, R5) — full-lane AOE burst (§8.6)
-@export var purple_reach_rows: int = 15
+@export var purple_reach_rows: int = 10
 @export var purple_fire_rate_sec: float = 1.4
 @export var purple_dmg_mult: float = 2.5
 @export var purple_aoe_radius_cells: float = 1.5
@@ -515,46 +515,46 @@ func get_wave_composition(realm: int, stage: int) -> Array:
 	var PH := "phaser"
 	realm = clamp_realm(realm)
 	stage = clamp_stage(stage)
-	# §8.2 R1 — Skyline (5/8/12/15/20 counts)
+	# §8.2 R1 — Skyline (8/12/16/20/22 counts)
 	if realm == 1:
 		match stage:
-			1: return _w_color_x(R, W, 5)
-			2: return _w_color_x(R, W, 5) + _w_color_x(B, W, 3)
-			3: return _w_color_x(R, W, 5) + [{"color": R, "variant": RUN}] + _w_color_x(B, W, 3) + _w_color_x(Y, W, 2) + [{"color": Y, "variant": RUN}]
-			4: return _w_color_x(R, W, 5) + _w_color_x(R, RUN, 2) + _w_color_x(B, W, 4) + _w_color_x(Y, W, 3) + [{"color": Y, "variant": BR}]
-			5: return _w_color_x(R, W, 6) + _w_color_x(R, RUN, 3) + _w_color_x(B, W, 5) + _w_color_x(Y, W, 3) + _w_color_x(Y, BR, 3)
-	# §8.3 R2 — Storm Reach
+			1: return _w_color_x(R, W, 8)
+			2: return _w_color_x(R, W, 7) + _w_color_x(B, W, 5)
+			3: return _w_color_x(R, W, 6) + _w_color_x(R, RUN, 2) + _w_color_x(B, W, 5) + _w_color_x(Y, W, 2) + [{"color": Y, "variant": RUN}]
+			4: return _w_color_x(R, W, 6) + _w_color_x(R, RUN, 3) + _w_color_x(B, W, 6) + _w_color_x(Y, W, 4) + [{"color": Y, "variant": BR}]
+			5: return _w_color_x(R, W, 6) + _w_color_x(R, RUN, 4) + _w_color_x(B, W, 6) + _w_color_x(Y, W, 3) + _w_color_x(Y, BR, 3)
+	# §8.3 R2 — Storm Reach (10/14/18/22/26)
 	if realm == 2:
 		match stage:
-			1: return _w_color_x(R, W, 6) + _w_color_x(B, W, 2)
-			2: return _w_color_x(R, W, 5) + _w_color_x(B, W, 3) + _w_color_x(Y, W, 1)
-			3: return _w_color_x(R, W, 5) + _w_color_x(B, W, 3) + _w_color_x(Y, W, 2) + [{"color": R, "variant": SH}]
-			4: return _w_color_x(R, W, 6) + _w_color_x(B, W, 4) + _w_color_x(Y, W, 3) + [{"color": B, "variant": SH}, {"color": Y, "variant": BR}]
-			5: return _w_color_x(R, W, 7) + _w_color_x(B, W, 5) + _w_color_x(Y, W, 4) + [{"color": R, "variant": SH}, {"color": B, "variant": SH}, {"color": R, "variant": BR}, {"color": Y, "variant": BR}]
-	# §8.4 R3 — Verdant Maze
+			1: return _w_color_x(R, W, 6) + _w_color_x(B, W, 4)
+			2: return _w_color_x(R, W, 6) + _w_color_x(B, W, 5) + _w_color_x(Y, W, 3)
+			3: return _w_color_x(R, W, 6) + _w_color_x(B, W, 5) + _w_color_x(Y, W, 3) + _w_color_x(R, RUN, 2) + [{"color": R, "variant": SH}, {"color": B, "variant": SH}]
+			4: return _w_color_x(R, W, 7) + _w_color_x(B, W, 6) + _w_color_x(Y, W, 4) + [{"color": R, "variant": SH}, {"color": B, "variant": SH}, {"color": Y, "variant": BR}, {"color": R, "variant": SH}, {"color": Y, "variant": BR}]
+			5: return _w_color_x(R, W, 8) + _w_color_x(B, W, 6) + _w_color_x(Y, W, 5) + [{"color": R, "variant": SH}, {"color": R, "variant": SH}, {"color": B, "variant": SH}, {"color": B, "variant": SH}, {"color": R, "variant": BR}, {"color": Y, "variant": BR}, {"color": Y, "variant": BR}]
+	# §8.4 R3 — Verdant Maze (12/16/20/24/28)
 	if realm == 3:
 		match stage:
-			1: return _w_color_x(R, W, 4) + _w_color_x(B, W, 2) + _w_color_x(G, W, 2)
-			2: return _w_color_x(R, W, 4) + _w_color_x(B, W, 2) + _w_color_x(G, W, 3) + _w_color_x(Y, W, 1)
-			3: return _w_color_x(R, W, 5) + _w_color_x(B, W, 3) + _w_color_x(G, W, 3) + _w_color_x(Y, W, 1) + [{"color": G, "variant": HL}]
-			4: return _w_color_x(R, W, 6) + _w_color_x(B, W, 4) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 2) + [{"color": G, "variant": HL}, {"color": R, "variant": SH}]
-			5: return _w_color_x(R, W, 6) + _w_color_x(B, W, 4) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 3) + [{"color": G, "variant": HL}, {"color": G, "variant": HL}]
-	# §8.5 R4 — Falling Spire
+			1: return _w_color_x(R, W, 5) + _w_color_x(B, W, 3) + _w_color_x(G, W, 4)
+			2: return _w_color_x(R, W, 5) + _w_color_x(B, W, 4) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 2)
+			3: return _w_color_x(R, W, 6) + _w_color_x(B, W, 4) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 3) + [{"color": G, "variant": HL}, {"color": G, "variant": HL}]
+			4: return _w_color_x(R, W, 7) + _w_color_x(B, W, 5) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 3) + [{"color": G, "variant": HL}, {"color": G, "variant": HL}, {"color": R, "variant": SH}, {"color": R, "variant": SH}]
+			5: return _w_color_x(R, W, 7) + _w_color_x(B, W, 5) + _w_color_x(G, W, 6) + _w_color_x(Y, W, 4) + [{"color": G, "variant": HL}, {"color": G, "variant": HL}, {"color": G, "variant": HL}, {"color": R, "variant": SH}, {"color": R, "variant": SH}, {"color": Y, "variant": BR}]
+	# §8.5 R4 — Falling Spire (16/20/24/28/32)
 	if realm == 4:
 		match stage:
-			1: return _w_color_x(R, W, 5) + _w_color_x(B, W, 3) + _w_color_x(G, W, 3) + _w_color_x(Y, W, 1)
-			2: return _w_color_x(R, W, 5) + _w_color_x(B, W, 4) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 2) + [{"color": R, "variant": AC}]
-			3: return _w_color_x(R, W, 6) + _w_color_x(B, W, 4) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 2) + [{"color": R, "variant": AC}, {"color": B, "variant": AC}, {"color": G, "variant": HL}]
-			4: return _w_color_x(R, W, 7) + _w_color_x(B, W, 5) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 3) + [{"color": B, "variant": SH}, {"color": R, "variant": AC}, {"color": G, "variant": HL}, {"color": Y, "variant": BR}]
-			5: return _w_color_x(R, W, 7) + _w_color_x(B, W, 5) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 3) + [{"color": R, "variant": AC}, {"color": B, "variant": AC}, {"color": G, "variant": HL}, {"color": R, "variant": SH}, {"color": Y, "variant": BR}]
-	# §8.6 R5 — Voidcrown
+			1: return _w_color_x(R, W, 6) + _w_color_x(B, W, 4) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 2)
+			2: return _w_color_x(R, W, 6) + _w_color_x(B, W, 5) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 3) + [{"color": R, "variant": AC}]
+			3: return _w_color_x(R, W, 7) + _w_color_x(B, W, 5) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 3) + [{"color": R, "variant": AC}, {"color": R, "variant": AC}, {"color": B, "variant": AC}, {"color": G, "variant": HL}]
+			4: return _w_color_x(R, W, 8) + _w_color_x(B, W, 6) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 4) + [{"color": B, "variant": SH}, {"color": R, "variant": AC}, {"color": R, "variant": AC}, {"color": G, "variant": HL}, {"color": Y, "variant": BR}]
+			5: return _w_color_x(R, W, 8) + _w_color_x(B, W, 6) + _w_color_x(G, W, 6) + _w_color_x(Y, W, 4) + [{"color": R, "variant": AC}, {"color": R, "variant": AC}, {"color": B, "variant": AC}, {"color": B, "variant": AC}, {"color": G, "variant": HL}, {"color": G, "variant": HL}, {"color": R, "variant": SH}, {"color": Y, "variant": BR}]
+	# §8.6 R5 — Voidcrown (20/24/28/32/36)
 	if realm == 5:
 		match stage:
-			1: return _w_color_x(R, W, 5) + _w_color_x(B, W, 3) + _w_color_x(G, W, 3) + _w_color_x(Y, W, 2) + _w_color_x(P, W, 2)
-			2: return _w_color_x(R, W, 5) + _w_color_x(B, W, 4) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 3) + _w_color_x(P, W, 3) + [{"color": R, "variant": SH}, {"color": G, "variant": HL}]
-			3: return _w_color_x(R, W, 5) + _w_color_x(B, W, 3) + _w_color_x(G, W, 3) + _w_color_x(Y, W, 2) + _w_color_x(P, W, 3) + [{"color": P, "variant": PH}, {"color": P, "variant": PH}]
-			4: return _w_color_x(R, W, 5) + _w_color_x(B, W, 4) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 3) + _w_color_x(P, W, 3) + [{"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": G, "variant": HL}, {"color": R, "variant": AC}, {"color": B, "variant": SH}]
-			5: return _w_color_x(R, W, 6) + _w_color_x(B, W, 4) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 3) + _w_color_x(P, W, 4) + [{"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": G, "variant": HL}, {"color": G, "variant": HL}, {"color": R, "variant": AC}, {"color": B, "variant": AC}]
+			1: return _w_color_x(R, W, 6) + _w_color_x(B, W, 4) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 3) + _w_color_x(P, W, 3)
+			2: return _w_color_x(R, W, 6) + _w_color_x(B, W, 5) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 4) + _w_color_x(P, W, 3) + [{"color": R, "variant": SH}]
+			3: return _w_color_x(R, W, 7) + _w_color_x(B, W, 4) + _w_color_x(G, W, 4) + _w_color_x(Y, W, 3) + _w_color_x(P, W, 4) + [{"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": G, "variant": HL}, {"color": G, "variant": HL}, {"color": G, "variant": HL}]
+			4: return _w_color_x(R, W, 6) + _w_color_x(B, W, 5) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 4) + _w_color_x(P, W, 4) + [{"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": G, "variant": HL}, {"color": G, "variant": HL}, {"color": R, "variant": AC}, {"color": R, "variant": AC}, {"color": B, "variant": SH}]
+			5: return _w_color_x(R, W, 7) + _w_color_x(B, W, 5) + _w_color_x(G, W, 5) + _w_color_x(Y, W, 4) + _w_color_x(P, W, 5) + [{"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": P, "variant": PH}, {"color": G, "variant": HL}, {"color": G, "variant": HL}, {"color": R, "variant": AC}, {"color": R, "variant": AC}, {"color": B, "variant": AC}, {"color": B, "variant": AC}]
 	return [{"color": R, "variant": W}]
 
 func _w_color_x(color: int, variant: String, count: int) -> Array:
