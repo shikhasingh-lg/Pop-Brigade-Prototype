@@ -290,7 +290,6 @@ const R5_DESCENT_SEC_PER_ROW: Array = [0.0, 0.0, 8.0, 8.0, 8.0]
 # §3.6 / §4.3 — Phase pacing
 # ============================================================
 @export_group("Phase Pacing")
-@export var wave_spawn_interval_sec: float = 1.5
 @export var phase_transition_sec: float = 1.0
 @export var carry_over_heroes_enabled: bool = true
 @export var phase1_early_clear_secs_per_bonus_hero: int = 0
@@ -309,11 +308,14 @@ const R5_DESCENT_SEC_PER_ROW: Array = [0.0, 0.0, 8.0, 8.0, 8.0]
 # §4.3 — Stage pacing
 # ============================================================
 @export_group("Stage Pacing")
-@export var s1_enemy_spawn_sec: float = 8.0
-@export var s2_enemy_spawn_sec: float = 6.0
-@export var s3_enemy_spawn_sec: float = 5.0
-@export var s4_enemy_spawn_sec: float = 4.0
-@export var s5_enemy_spawn_sec: float = 3.0
+# Per-stage wave spawn cadence (seconds between enemy spawns). Consumed by
+# MatchScene wave loop via get_stage_spawn_rate_sec(stage_num). Tightens ~40%
+# from S1 to S5 — combines with HP×1.5 and damage×1.2 ramp.
+@export var s1_enemy_spawn_sec: float = 1.5
+@export var s2_enemy_spawn_sec: float = 1.35
+@export var s3_enemy_spawn_sec: float = 1.2
+@export var s4_enemy_spawn_sec: float = 1.05
+@export var s5_enemy_spawn_sec: float = 0.9
 @export var stage_max_duration_sec: float = 120.0
 
 # ============================================================

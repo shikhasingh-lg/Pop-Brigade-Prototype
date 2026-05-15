@@ -63,6 +63,7 @@ const KNOB_RADIUS := 18.0
 
 # Aiming state
 var _aiming: bool = false
+var _aim_just_started: bool = false  # first _update_aim after press: snap, don't smooth
 var _aim_start_pos: Vector2 = Vector2.ZERO
 var _aim_current_pos: Vector2 = Vector2.ZERO
 var _current_aim_angle_deg: float = -90.0
@@ -202,6 +203,7 @@ func _begin_aim(touch_pos: Vector2) -> void:
 	if _aim_swap_candidate:
 		return
 	_aiming = true
+	_aim_just_started = true
 	queue_redraw()
 	_update_aim(touch_pos)
 
@@ -216,12 +218,18 @@ func _update_aim(touch_pos: Vector2) -> void:
 		_hide_aim_overlay()
 		queue_redraw()
 		return
-	# Smooth toward raw target angle so each finger event nudges aim instead
-	# of teleporting it — gives a much steadier feel on touch screens.
+	# First event after press: snap directly to the touch direction. Smoothing
+	# from the previous shot's angle would land the trajectory part-way between
+	# old aim and the new tap, so a click would visibly fire off-target.
+	# Subsequent drag events smooth so finger jitter doesn't snap the angle.
 	var target_rad := to_touch.angle()
-	var current_rad := deg_to_rad(_current_aim_angle_deg)
-	var smoothed_rad := lerp_angle(current_rad, target_rad, AIM_SMOOTH_ALPHA)
-	_current_aim_angle_deg = rad_to_deg(smoothed_rad)
+	if _aim_just_started:
+		_current_aim_angle_deg = rad_to_deg(target_rad)
+		_aim_just_started = false
+	else:
+		var current_rad := deg_to_rad(_current_aim_angle_deg)
+		var smoothed_rad := lerp_angle(current_rad, target_rad, AIM_SMOOTH_ALPHA)
+		_current_aim_angle_deg = rad_to_deg(smoothed_rad)
 	queue_redraw()
 	if aim_overlay == null: return
 	aim_overlay.visible = true

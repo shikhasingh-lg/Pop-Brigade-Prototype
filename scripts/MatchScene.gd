@@ -598,7 +598,7 @@ func _process_phase_2(delta: float) -> void:
 			lane.spawn_wave_enemy(color, _wave_next_col, _wave_index, variant, stage_num, realm_num)
 			_wave_next_col = (_wave_next_col + 1) % Lane.COLS
 			_wave_index += 1
-			_wave_spawn_timer = GameConfig.wave_spawn_interval_sec
+			_wave_spawn_timer = GameConfig.get_stage_spawn_rate_sec(stage_num)
 	# Every S5: append the boss one beat after the last walker spawns.
 	# R5S3 mini-boss (Echo of Voidcrown) — spawn mid-wave (after first 1/3 of wave drained).
 	elif _boss_pending:
