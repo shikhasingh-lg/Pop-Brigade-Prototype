@@ -138,6 +138,16 @@ var _moves_remaining: int = 0
 # HUD: moves counter — created at runtime, top-right of the cannon HUD.
 var _moves_label: Label = null
 
+# Low-moves urgency (design-spec §3.5 / ui-flow "Low-moves urgency"):
+# At moves_remaining == 5 we flash a golden highlight box behind the counter
+# for ~2 s with a subtle pulse, then fade out. Fires once per stage; re-arms
+# if moves are added back above the threshold via boons.
+var _moves_highlight: Panel = null
+var _low_moves_alerted: bool = false
+const _LOW_MOVES_THRESHOLD: int = 5
+const _LOW_MOVES_HIGHLIGHT_HOLD_SEC: float = 2.0
+const _LOW_MOVES_HIGHLIGHT_FADE_SEC: float = 0.3
+
 # GET READY! / phase banner (created at runtime — no scene edit needed).
 var _phase_banner: Label = null
 
@@ -307,6 +317,10 @@ func start_stage(num: int, run_boons: Array, realm: int = 1) -> void:
 	_moves_remaining = GameConfig.get_realm_move_budget(realm_num, num)
 	_start_moves = _moves_remaining
 	_no_enemy_timer = 0.0
+	_low_moves_alerted = false
+	if _moves_highlight != null:
+		_moves_highlight.visible = false
+		_moves_highlight.modulate.a = 1.0
 	_refresh_moves_label()
 	_frenzy_buffed_colors = {}
 	_boss_pending = false
@@ -406,6 +420,7 @@ func _enter_transition(reason: String) -> void:
 		0, {}, _bubbles_fired, _total_pops, _bubbles_lost, _max_chain,
 		_frenzy_buffed_colors.keys())
 	if _moves_label: _moves_label.visible = false
+	if _moves_highlight: _moves_highlight.visible = false
 	_show_banner("GET READY!", GameConfig.phase_transition_sec)
 
 func _award_early_clear_bonus() -> void:
@@ -1232,9 +1247,32 @@ func _setup_moves_label() -> void:
 	_moves_label.position = Vector2(30, 42)
 	_moves_label.size = Vector2(260, 36)
 	_moves_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Golden highlight panel — sits behind the label, hidden until moves drop to
+	# the low-moves threshold. Added BEFORE the label so the label draws on top.
+	_moves_highlight = Panel.new()
+	_moves_highlight.name = "MovesHighlight"
+	var hl_style := StyleBoxFlat.new()
+	hl_style.bg_color = Color(1.0, 0.82, 0.20, 0.28)        # soft gold fill
+	hl_style.border_color = Color(1.0, 0.78, 0.18, 1.0)     # solid gold border
+	hl_style.set_border_width_all(4)
+	hl_style.corner_radius_top_left = 10
+	hl_style.corner_radius_top_right = 10
+	hl_style.corner_radius_bottom_left = 10
+	hl_style.corner_radius_bottom_right = 10
+	hl_style.shadow_color = Color(1.0, 0.78, 0.18, 0.55)
+	hl_style.shadow_size = 8
+	_moves_highlight.add_theme_stylebox_override("panel", hl_style)
+	# Sized slightly larger than the label so the border surrounds it.
+	_moves_highlight.position = Vector2(_moves_label.position.x - 12, _moves_label.position.y - 8)
+	_moves_highlight.size = Vector2(_moves_label.size.x + 24, _moves_label.size.y + 16)
+	_moves_highlight.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_moves_highlight.visible = false
+	_moves_highlight.pivot_offset = _moves_highlight.size * 0.5
 	if has_node("HUDTop"):
+		$HUDTop.add_child(_moves_highlight)
 		$HUDTop.add_child(_moves_label)
 	else:
+		add_child(_moves_highlight)
 		add_child(_moves_label)
 
 func _refresh_moves_label() -> void:
@@ -1246,6 +1284,35 @@ func _refresh_moves_label() -> void:
 		_moves_label.add_theme_color_override("font_color", Color(1, 0.45, 0.4))
 	else:
 		_moves_label.add_theme_color_override("font_color", Color(1, 0.95, 0.6))
+	# Low-moves urgency: golden highlight when crossing into the threshold.
+	# Fires once per stage; re-arms if moves climb back above threshold.
+	if _phase == Phase.PHASE_1:
+		if _moves_remaining > _LOW_MOVES_THRESHOLD:
+			_low_moves_alerted = false
+		elif _moves_remaining == _LOW_MOVES_THRESHOLD and not _low_moves_alerted:
+			_low_moves_alerted = true
+			_trigger_low_moves_highlight()
+
+func _trigger_low_moves_highlight() -> void:
+	if _moves_highlight == null: return
+	_moves_highlight.visible = true
+	_moves_highlight.modulate = Color(1, 1, 1, 1)
+	_moves_highlight.scale = Vector2.ONE
+	# Pulse scale (up-down twice) during the hold, then fade out.
+	var pulse: Tween = create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	pulse.tween_property(_moves_highlight, "scale", Vector2(1.08, 1.12), 0.35)
+	pulse.tween_property(_moves_highlight, "scale", Vector2.ONE, 0.35)
+	pulse.tween_property(_moves_highlight, "scale", Vector2(1.06, 1.08), 0.35)
+	pulse.tween_property(_moves_highlight, "scale", Vector2.ONE, 0.35)
+	# Hold then fade.
+	var fade: Tween = create_tween()
+	fade.tween_interval(_LOW_MOVES_HIGHLIGHT_HOLD_SEC)
+	fade.tween_property(_moves_highlight, "modulate:a", 0.0, _LOW_MOVES_HIGHLIGHT_FADE_SEC)
+	fade.tween_callback(func() -> void:
+		if _moves_highlight != null:
+			_moves_highlight.visible = false
+			_moves_highlight.modulate.a = 1.0
+	)
 
 func _set_wave_progress_visible(on: bool) -> void:
 	if _wave_bar_bg != null: _wave_bar_bg.visible = on

@@ -35,20 +35,23 @@ const RARITY_LABEL := {
 
 # id → { label, rarity, effect_key }
 # label uses \n for card-friendly line breaks.
+#
+# 2026-05-15 cleanup: removed 10 boons whose effects either had stub `pass`
+# handlers or set state nothing else reads (ricochet_plus, double_loader,
+# extra_special, hall_of_heroes, type_caster, elemental_surge, coin_magnet,
+# shop_discount, reroll_token, treasure_wave). v1 has no economy, no shop,
+# no hero-slot cap, no special-proc system — so those boons couldn't land.
 const BOONS := {
-	# ---------- Legacy 9 (kept for back-compat) ----------
+	# ---------- Color bias + class damage ----------
 	"red_bias":       { "label": "+30%\nRED\nbubbles",      "rarity": Rarity.COMMON, "effect_key": "cannon_color_bias" },
 	"blue_bias":      { "label": "+30%\nBLUE\nbubbles",     "rarity": Rarity.COMMON, "effect_key": "cannon_color_bias" },
 	"yellow_bias":    { "label": "+30%\nYELLOW\nbubbles",   "rarity": Rarity.COMMON, "effect_key": "cannon_color_bias" },
 	"red_dmg":        { "label": "+25%\nRED\nhero dmg",     "rarity": Rarity.RARE,   "effect_key": "lane_color_dmg" },
 	"blue_dmg":       { "label": "+25%\nBLUE\nhero dmg",    "rarity": Rarity.RARE,   "effect_key": "lane_color_dmg" },
 	"yellow_dmg":     { "label": "+25%\nYELLOW\nhero dmg",  "rarity": Rarity.RARE,   "effect_key": "lane_color_dmg" },
-	"extra_special":  { "label": "+1\nspecial\nbubble /30s","rarity": Rarity.RARE,   "effect_key": "extra_special" },
-	"faster_fire":    { "label": "Faster\ncannon\nfire",    "rarity": Rarity.COMMON, "effect_key": "cannon_fire_rate" },
-	"ricochet_plus":  { "label": "+1\nwall\nbounce",        "rarity": Rarity.RARE,   "effect_key": "cannon_ricochet" },
 
-	# ---------- New 30 (cannon / bubble) ----------
-	"double_loader":  { "label": "DOUBLE\nLOADER\n+2 in queue",         "rarity": Rarity.COMMON,    "effect_key": "cannon_queue_plus2" },
+	# ---------- Cannon ----------
+	"faster_fire":    { "label": "Faster\ncannon\nfire",                "rarity": Rarity.COMMON,    "effect_key": "cannon_fire_rate" },
 	"rapid_fire":     { "label": "RAPID\nFIRE\n-25% reload",            "rarity": Rarity.COMMON,    "effect_key": "cannon_rapid_fire" },
 	"heavy_shot":     { "label": "HEAVY\nSHOT\n+10% hero dmg",          "rarity": Rarity.COMMON,    "effect_key": "global_dmg_bonus" },
 	"wide_barrel":    { "label": "WIDE\nBARREL\n+20% hit zone",         "rarity": Rarity.RARE,      "effect_key": "cannon_wide_barrel" },
@@ -58,30 +61,23 @@ const BOONS := {
 	"overcharge":     { "label": "OVERCHARGE\nevery 5th shot\nis a big one", "rarity": Rarity.EPIC, "effect_key": "cannon_overcharge" },
 	"infinity_mag":   { "label": "INFINITY\nMAG\nrapid auto-fire",      "rarity": Rarity.LEGENDARY, "effect_key": "cannon_infinity_mag" },
 
-	# ---------- New (hero spawn / composition) ----------
+	# ---------- Hero spawn / composition ----------
 	"recruitment_drive": { "label": "RECRUITMENT\nDRIVE\n+3 heroes next stage", "rarity": Rarity.COMMON,    "effect_key": "spawn_3_heroes_next_stage" },
 	"fresh_blood":       { "label": "FRESH\nBLOOD\n+1 hero now",                "rarity": Rarity.COMMON,    "effect_key": "spawn_1_hero_now" },
 	"lucky_draw":        { "label": "LUCKY\nDRAW\nnext hero is silver+",        "rarity": Rarity.RARE,      "effect_key": "next_hero_silver_plus" },
-	"type_caster":       { "label": "TYPE\nCASTER\npick next hero color",       "rarity": Rarity.RARE,      "effect_key": "next_hero_player_pick" },
 	"reinforcements":    { "label": "REINFORCEMENTS\n+1 hero\nevery 30s",       "rarity": Rarity.EPIC,      "effect_key": "periodic_hero_spawn" },
 	"twin_souls":        { "label": "TWIN\nSOULS\nhero drops in pairs",         "rarity": Rarity.EPIC,      "effect_key": "double_hero_drops" },
-	"hall_of_heroes":    { "label": "HALL OF\nHEROES\n+2 hero slots",           "rarity": Rarity.EPIC,      "effect_key": "hero_slot_plus2" },
 	"legendary_pact":    { "label": "LEGENDARY\nPACT\nfirst hero is GOLD",      "rarity": Rarity.LEGENDARY, "effect_key": "first_hero_gold" },
 
-	# ---------- New (hero combat) ----------
+	# ---------- Hero combat ----------
 	"sharp_steel":    { "label": "SHARP\nSTEEL\n+15% hero dmg",         "rarity": Rarity.COMMON, "effect_key": "global_dmg_bonus_15" },
 	"iron_skin":      { "label": "IRON\nSKIN\n+20% hero HP",            "rarity": Rarity.COMMON, "effect_key": "global_hp_bonus_20" },
 	"quick_feet":     { "label": "QUICK\nFEET\n+15% atk speed",         "rarity": Rarity.RARE,   "effect_key": "global_atk_speed_15" },
-	"elemental_surge":{ "label": "ELEMENTAL\nSURGE\n+25% special proc", "rarity": Rarity.RARE,   "effect_key": "global_special_proc_25" },
 	"berserker_rage": { "label": "BERSERKER\nRAGE\n2x dmg <30% HP",     "rarity": Rarity.EPIC,   "effect_key": "berserker_rage" },
 	"vampiric_strike":{ "label": "VAMPIRIC\nSTRIKE\nheal 10% dmg",      "rarity": Rarity.EPIC,   "effect_key": "vampiric_strike" },
 	"hero_synergy":   { "label": "HERO\nSYNERGY\ndupes +20% each",      "rarity": Rarity.EPIC,   "effect_key": "hero_synergy" },
 
-	# ---------- New (economy / meta) ----------
-	"coin_magnet":    { "label": "COIN\nMAGNET\n+50% gold",             "rarity": Rarity.COMMON,    "effect_key": "coins_x1_5" },
-	"shop_discount":  { "label": "SHOP\nDISCOUNT\n-25% prices",         "rarity": Rarity.RARE,      "effect_key": "shop_discount_25" },
-	"reroll_token":   { "label": "REROLL\nTOKEN\n3 free rerolls",       "rarity": Rarity.RARE,      "effect_key": "reroll_tokens_3" },
-	"treasure_wave":  { "label": "TREASURE\nWAVE\nguaranteed chest",    "rarity": Rarity.EPIC,      "effect_key": "treasure_next_wave" },
+	# ---------- Meta / utility ----------
 	"time_stop":      { "label": "TIME\nSTOP\npause wave 10s",          "rarity": Rarity.LEGENDARY, "effect_key": "time_stop_10s" },
 }
 

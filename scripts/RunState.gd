@@ -34,15 +34,12 @@ var run_player_hp: int = 0
 var boon_global_dmg_mult: float = 1.0
 var boon_global_hp_mult: float = 1.0
 var boon_global_atk_speed_mult: float = 1.0
-var boon_special_proc_mult: float = 1.0
-var boon_coin_mult: float = 1.0
 var boon_berserker_rage: bool = false
 var boon_vampiric_strike: bool = false
 var boon_hero_synergy: bool = false
 var boon_double_hero_drops: bool = false
 var boon_periodic_hero_spawn: bool = false
 var boon_chain_pop: bool = false
-var boon_treasure_next_wave: bool = false
 # One-shot flags consumed by the next stage / next hero.
 var boon_first_hero_gold_pending: bool = false
 var boon_next_hero_silver_plus_pending: bool = false
@@ -99,15 +96,12 @@ func recompute_boon_state() -> void:
 	boon_global_dmg_mult = 1.0
 	boon_global_hp_mult = 1.0
 	boon_global_atk_speed_mult = 1.0
-	boon_special_proc_mult = 1.0
-	boon_coin_mult = 1.0
 	boon_berserker_rage = false
 	boon_vampiric_strike = false
 	boon_hero_synergy = false
 	boon_double_hero_drops = false
 	boon_periodic_hero_spawn = false
 	boon_chain_pop = false
-	boon_treasure_next_wave = false
 	for id in run_boons:
 		var key: String = BoonDB.get_effect_key(id)
 		match key:
@@ -115,15 +109,12 @@ func recompute_boon_state() -> void:
 			"global_dmg_bonus_15":   boon_global_dmg_mult *= 1.15
 			"global_hp_bonus_20":    boon_global_hp_mult  *= 1.20
 			"global_atk_speed_15":   boon_global_atk_speed_mult *= 1.15
-			"global_special_proc_25":boon_special_proc_mult *= 1.25
-			"coins_x1_5":            boon_coin_mult *= 1.5
 			"berserker_rage":        boon_berserker_rage = true
 			"vampiric_strike":       boon_vampiric_strike = true
 			"hero_synergy":          boon_hero_synergy = true
 			"double_hero_drops":     boon_double_hero_drops = true
 			"periodic_hero_spawn":   boon_periodic_hero_spawn = true
 			"cluster_chain_pop":     boon_chain_pop = true
-			"treasure_next_wave":    boon_treasure_next_wave = true
 			_: pass
 
 

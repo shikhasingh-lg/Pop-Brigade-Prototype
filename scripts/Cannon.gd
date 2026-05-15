@@ -531,11 +531,8 @@ func apply_boon(boon_id: String) -> void:
 		"cannon_fire_rate":      fire_rate_cap_sec = 0.4
 		"cannon_rapid_fire":     fire_rate_cap_sec = min(fire_rate_cap_sec, 0.375)
 		"cannon_infinity_mag":   fire_rate_cap_sec = 0.15
-		"cannon_ricochet":       ricochet_count = max(ricochet_count, 2)
 		"cannon_color_lock":     boon_color_lock = true
 		"cannon_overcharge":     boon_overcharge = true
 		"cannon_twin":           boon_twin_cannons = true
 		"cannon_wide_barrel":    boon_wide_barrel = true
-		"cannon_queue_plus2":    pass  # queue UI only shows 2; visual stub only
-		"extra_special":         pass  # handled by special-bubble timer elsewhere
 		_:                       pass  # hero / lane / matchscene-side effects

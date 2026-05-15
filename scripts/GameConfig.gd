@@ -312,15 +312,6 @@ const R5_DESCENT_SEC_PER_ROW: Array = [0.0, 0.0, 8.0, 8.0, 8.0]
 @export var stage_max_duration_sec: float = 120.0
 
 # ============================================================
-# §4.2 — Boon pool
-# ============================================================
-const BOON_IDS := [
-	"red_bias", "blue_bias", "yellow_bias",
-	"red_dmg",  "blue_dmg",  "yellow_dmg",
-	"extra_special", "faster_fire", "ricochet_plus",
-]
-
-# ============================================================
 # Helpers — legacy (stage-only)
 # ============================================================
 func get_stage_start_rows(stage_num: int) -> int:
