@@ -21,3 +21,6 @@ Thumbs.db
 # Telemetry output (local sessions)
 logs/
 *.jsonl
+
+# Nested standalone godot-prototype repo (legacy — kept as its own repo)
+godot-prototype/
