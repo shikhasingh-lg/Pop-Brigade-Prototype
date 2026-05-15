@@ -51,15 +51,12 @@ const BOONS := {
 	"yellow_dmg":     { "label": "+25%\nYELLOW\nhero dmg",  "rarity": Rarity.RARE,   "effect_key": "lane_color_dmg" },
 
 	# ---------- Cannon ----------
-	"faster_fire":    { "label": "Faster\ncannon\nfire",                "rarity": Rarity.COMMON,    "effect_key": "cannon_fire_rate" },
-	"rapid_fire":     { "label": "RAPID\nFIRE\n-25% reload",            "rarity": Rarity.COMMON,    "effect_key": "cannon_rapid_fire" },
 	"heavy_shot":     { "label": "HEAVY\nSHOT\n+10% hero dmg",          "rarity": Rarity.COMMON,    "effect_key": "global_dmg_bonus" },
 	"wide_barrel":    { "label": "WIDE\nBARREL\n+20% hit zone",         "rarity": Rarity.RARE,      "effect_key": "cannon_wide_barrel" },
 	"chain_pop":      { "label": "CHAIN\nPOP\npop+1 neighbor",          "rarity": Rarity.RARE,      "effect_key": "cluster_chain_pop" },
 	"twin_cannons":   { "label": "TWIN\nCANNONS\n2 bubbles/shot",       "rarity": Rarity.EPIC,      "effect_key": "cannon_twin" },
 	"color_lock":     { "label": "COLOR\nLOCK\nbest-match only",        "rarity": Rarity.EPIC,      "effect_key": "cannon_color_lock" },
 	"overcharge":     { "label": "OVERCHARGE\nevery 5th shot\nis a big one", "rarity": Rarity.EPIC, "effect_key": "cannon_overcharge" },
-	"infinity_mag":   { "label": "INFINITY\nMAG\nrapid auto-fire",      "rarity": Rarity.LEGENDARY, "effect_key": "cannon_infinity_mag" },
 
 	# ---------- Hero spawn / composition ----------
 	"recruitment_drive": { "label": "RECRUITMENT\nDRIVE\n+3 heroes next stage", "rarity": Rarity.COMMON,    "effect_key": "spawn_3_heroes_next_stage" },

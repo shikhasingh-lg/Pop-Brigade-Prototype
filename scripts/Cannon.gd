@@ -586,9 +586,6 @@ func apply_boon(boon_id: String) -> void:
 		"yellow_bias": color_bias = GameConfig.BubbleColor.YELLOW; return
 	var key: String = BoonDB.get_effect_key(boon_id)
 	match key:
-		"cannon_fire_rate":      fire_rate_cap_sec = 0.4
-		"cannon_rapid_fire":     fire_rate_cap_sec = min(fire_rate_cap_sec, 0.375)
-		"cannon_infinity_mag":   fire_rate_cap_sec = 0.15
 		"cannon_color_lock":     boon_color_lock = true
 		"cannon_overcharge":     boon_overcharge = true
 		"cannon_twin":           boon_twin_cannons = true
