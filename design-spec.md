@@ -231,6 +231,7 @@ Portrait mobile, 9:19.5 reference (iPhone 15 / Pixel 8). Screen divided into thr
 - Fired bubble travels along aim trajectory at 1500 px/sec.
 - On collision with cluster bubble or top wall, snaps to nearest empty hex cell adjacent to point of contact.
 - **Every shot fired costs 1 move from the move budget**, whether or not it attaches or pops.
+- **Low-moves urgency:** at `moves_remaining ≤ 5` the HUD escalates a 4-channel warning (visual / motion / haptic / audio) — yellow at 5, red at 3, critical at 1. Full ladder + toast text in `ui-flow.md` "Low-moves urgency". Reason: top-corner placement gets missed; eyes stay on cluster + cannon during P1.
 
 **Match detection:**
 - After attachment, run flood-fill from the new bubble.

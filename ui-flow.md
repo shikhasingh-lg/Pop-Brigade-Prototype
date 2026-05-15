@@ -258,7 +258,7 @@ During the wipe, every remaining cluster bubble visibly drops out of formation a
 | HP bar | Top-left | Decrements when enemy reaches cannon (P2 only); flashes red on hit | Constant HP awareness |
 | Stage indicator | Top-center | "Stage N/5" + sub-text "BUILD" / "DEFEND" + wave-remaining count in P2 | Pacing feedback |
 | **Phase banner** | Below HUD | Persistent: blue "PHASE 1: BUILD" or red "PHASE 2: DEFEND" | Critical readability — testers must always know which phase |
-| **Move budget counter** | Above cannon, P1 only | Prominent "MOVES: 7 / 10". Decrements with each shot. Pulses red at ≤3 moves remaining. | The phase-1 fail clock is moves, not time |
+| **Move budget counter** | **Two locations, P1 only:** primary above cannon (large "MOVES: 7 / 10"); secondary echo number painted on the cannon barrel itself. | Decrements with each shot. Multi-channel low-moves warning kicks in at ≤5 (see "Low-moves urgency" below). | The phase-1 fail clock is moves, not time. Echo on barrel keeps eyes in the aim zone. |
 | **Cluster descent bar** | Top of cluster zone, stages 4+ ONLY | Thin progress bar to next descent tick | Telegraphs the secondary P1 pressure |
 | Pause btn | Top-right | Opens Pause overlay | Standard mobile |
 | Cluster grid | Upper 55% | Hex grid of bubbles + hero bubbles (face/portrait overlay, glow ring). **Empty in P2.** | Bubble shooter playfield + hero gacha shelf |
@@ -273,9 +273,26 @@ During the wipe, every remaining cluster bubble visibly drops out of formation a
 2. **Cluster + lane share visual language.** Same colour palette; colour is a chaining mechanic, NOT hero class.
 3. **Phase banner unmistakable.** Color + text. Mid-screen wipe between phases must be impossible to miss.
 4. **Conversion VFX is the Q1 hook.** Each leftover bubble visibly drops out of cluster and becomes an enemy in the same column at transition. This is the moment that sells "the bubbles I didn't pop are the wave I'm fighting."
-5. **Move counter is the P1 fail clock.** Must be prominent — testers need to feel "running out" tension.
+5. **Move counter is the P1 fail clock.** Must be prominent — testers need to feel "running out" tension. Top-corner placement does NOT count as prominent (eyes are on cannon + cluster during P1). Counter lives above the cannon AND echoes on the cannon barrel, with multi-channel urgency at ≤5 moves.
 6. **Hero drag affordance only in P2.** Cannon dimmed signals "now you can reposition."
 7. **No purchase buttons, no ads, no popups, no daily reward.** v1 is pure mechanic test.
+
+**Low-moves urgency (multi-channel warning ladder):**
+
+Players ignore a quiet number in the corner. Once `moves_remaining ≤ 5`, escalate across **four channels** (visual, motion, haptic, audio) on a rising ladder so the warning is impossible to miss without being noisy at higher move counts.
+
+| Moves left | Visual | Motion | Haptic | Audio |
+|---|---|---|---|---|
+| **6+** | Counter neutral white | Static | — | — |
+| **5** (yellow alert) | Counter + barrel echo turn **yellow** | Counter pulses 1×/sec; center-screen toast **"5 MOVES LEFT!"** for 1.2 s (one-shot, never repeats) | Single light tick | Soft "tick" SFX layer starts (1 Hz, low volume) |
+| **3** (red alert) | Counter + barrel echo turn **red**; cannon glow shifts to amber | Counter pulses 2×/sec; second one-shot toast **"3 MOVES LEFT!"** 1.2 s | Medium tick at the moment of transition | Tick SFX picks up to 2 Hz, gains a sharper attack |
+| **1** (critical) | Counter scales to **1.3×**, deep red; screen-edge **red vignette** pulse once | Counter pulses 3×/sec | Sharp haptic accent | Tick SFX peaks at 3 Hz; one urgent musical sting on the transition into "1 left" |
+
+Rules:
+- Toasts are one-shot per stage (not per-frame). If the player gains moves back via an "Extra Moves" boon and crosses the threshold again, toasts re-arm and can fire once more.
+- Color states are sticky going down (5 → 3 → 1) but reset cleanly to white if moves are added back above 6.
+- Haptic and the urgent sting respect the OS mute / system haptic-off settings.
+- The on-barrel echo number is the smallest channel but always present — guarantees the player sees the number even when their eyes never leave the aim zone.
 
 ---
 
