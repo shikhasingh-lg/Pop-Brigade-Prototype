@@ -1,243 +1,212 @@
 ---
-name: Bubble Shooter TD — Concept One-Pager (Pop Brigade)
+name: Pop Brigade — Concept (Template v2)
 status: active
 created: 2026-05-11
-updated: 2026-05-13
+updated: 2026-05-14
+audience: leadership pitch (concept selection)
+template: New Game Concept — Template v2
+scope: concept-level pitch. Full mechanics live in `design-spec.md`, `combat-design.md`, `ui-flow.md`. Original pitch preserved as `old-concept.md`.
 ---
 
-## Goal
-A 1-pager pitch for a Bubble Shooter Tower Defense hybrid targeting the Slime Legion player.
+# Pop Brigade
 
-## Context
-- Studio pivot post-BLACK: hybrid casual game, 6-8 month ship, team of 10. See [new_project_market_research.md](~/.claude/projects/-Users-shikhasingh/memory/new_project_market_research.md).
-- Top 3 candidates from research: Lucky Defense (merge), Slime Legion (match), GearPaw Defenders (gear).
-- AppMagic competitive scan (2026-05-10) validated:
-  - Bubble shooter lane: 5 publishers in top 5, no UA giant. $500-700K/mo across King / Jam City / LINE / Miniclip. Most fragmented lane.
-  - Slingshot lane: XFLAG/Monster Strike ($27M/mo) JP-locked monster collector — global slingshot-TD essentially empty.
-  - Plinko lane: top game $10K/mo. Genre too small.
-- Audience decision: target Slime Legion player → bubble shooter has stronger DNA match than slingshot (color = match, pattern recognition, female-skew casual audience overlap).
-- Methodology: [game_research_methodology.md](~/.claude/projects/-Users-shikhasingh/memory/game_research_methodology.md).
+## 1. Identity
 
----
-
-# One-Pager: Pop Brigade (working title)
-
-## Pitch (30 sec)
-
-A vertical-lane tower defense in two phases. **Phase 1 (Build):** you have a fixed number of shots — 10 at level 1 — to fire at a cluster of bubbles overhead. Match 3+ same-color pops bubbles. Specific bubbles have heroes trapped inside (visible from spawn, ~1-in-8 density) — popping those frees the trapped heroes onto your lane. **When your shots run out, every bubble left in the cluster becomes an enemy** that falls toward your line, plus a scripted enemy wave also begins. **Phase 2 (Combat):** your heroes auto-attack the wave, and you can **drag them horizontally along the line** in real time to meet the threat — and **drag a hero onto another of the same class to merge them into a stronger tier** (Bronze + Bronze → Silver → Gold). Build, then defend, then upgrade on the line.
-
-**Same brain as Slime Legion, different gesture — and a sharper causal link: the bubbles you don't pop become the wave you fight. Same merge depth as Lucky Defense, but the units come from a bubble shooter.**
+| Field | Value |
+| --- | --- |
+| Working title | **Pop Brigade** |
+| Genre / subgenre | Lane tower defense × bubble shooter, with hero-collection gacha meta and a same-class merge ladder. Two-phase per stage: Build (bubble-shoot to recruit heroes) → Defend (auto-combat + drag-to-merge). |
+| Target audience | Hybrid-casual mobile players, female-skew, 5–15 minute sessions, who already play **Slime Legion / Lucky Defense / GearPaw Defenders / Bubble Witch 3** and want a build→defend rhythm with a collectible-hero hook. Not the pure-puzzle Panda Pop player; not the Last War / Whiteout SLG player. |
 
 ---
 
-## Target player
+## 2. Core thesis / idea
 
-Slime Legion / Lucky Defense / Bubble Witch / Capybara Go player. Hybrid casual, female-skew, 5-15 min sessions, comfortable with ~4 cognitive layers, plays multiple Habby-tier TD hybrids.
+**Player-voice, ~115 words.**
 
----
-
-## Core loop (phased: Build → Combat)
-
-### Phase 1 — Build (uses your move budget)
-
-| Beat | Action | Outcome |
-|---|---|---|
-| Fire | Aim and fire a bubble | Move budget −1 |
-| Pop | Match 3 same color (no hero bubble in match) | Clear bubbles, reduce cluster pressure |
-| Pop hero | Match 3+ that includes a **hero bubble** | Free trapped hero onto row 0 below the popped bubble's column |
-| Pop hero (big) | Match 6-9 / Match 10+ with a hero bubble | Silver / Gold tier hero (Gold is rare — usually via Color Bomb on a stage 4-5 cluster) |
-| Frenzy | Clear all of one color | That color is "frenzied" — its heroes get +50% damage in Phase 2 |
-| End | Move budget reaches 0 (or cluster cleared, or descent hits row 0 stages 4+) | **Phase 1 ends** |
-
-### Transition (1 s "GET READY!" wipe)
-
-| Event | Effect |
-|---|---|
-| Cluster leftovers | **Every bubble still in the cluster spawns an enemy** of that color, falling from its position |
-| Scripted wave | Also starts — fixed composition per stage |
-
-### Phase 2 — Combat (no firing, but you can drag)
-
-| Beat | Action | Outcome |
-|---|---|---|
-| Auto-combat | Heroes auto-fire at incoming enemies | Cluster-converted + scripted wave both attack |
-| Drag (reposition) | Press-hold any hero, drag to empty cell, release | Hero repositioned (no cooldown, full range) |
-| Drag (merge) | Press-hold any hero, drag onto **same-class same-tier** hero, release | **Merge** → one hero, next tier (B+B → S, S+S → G). Full new-tier HP. Gold is the cap. |
-| Drag (swap) | Drag onto a hero that doesn't match class/tier | Swap places (existing behaviour) |
-| Clear | All enemies defeated, no enemies on lane 2 s | Stage clear → boon pick → next stage |
-| Fail | Player HP = 0 | Stage fail → run ends |
-
-**Cognitive layers (Slime Legion ceiling = 4; we sit at 5 with merge as the optional layer):**
-1. Aim + fire with limited shots (Phase 1)
-2. Hero-bubble priority — which hero do I free vs which wall do I clear (Phase 1)
-3. Color frenzy setup — should I starve a color to enable Phase 2 buff (Phase 1)
-4. Hero positioning under wave pressure (Phase 2)
-5. **Merge vs spread** — do I stack same-class heroes for tier-up power, or spread them for column coverage (Phase 2). Optional — players who ignore merging still have a complete game; merging is the depth ceiling. Also auto-resolves in Phase 1 when matching heroes land on the same row-0 cell, so beginners are pulled into the mechanic passively.
+There's a cluster of bubbles hanging overhead, and some of those bubbles have my heroes locked inside. I get a fixed number of shots — every shot I waste on a regular bubble is a hero I never recruit. The second I free the last hero (or run out of shots), the cluster vanishes and a wave of enemies starts marching down my lane. My heroes auto-attack. I drag them left and right to meet the threats. When two of the same hero bump into each other they merge into a bigger, badder version. Clear five stages and a boss in about 90 seconds each, then I pull the gacha and the heroes I unlock show up trapped in the next run's cluster.
 
 ---
 
-## Hero bubbles + colour relationship
+## 3. Hypothesis — why this game, why it will work
 
-| Element | Role |
-|---|---|
-| **Bubble colour** | Chaining + clearing — colour-matched groups pop together. Drives puzzle feel. |
-| **Hero bubble** | A specific hero trapped inside, **shown as a bubble with a hero face/portrait** (always visible — the player can plan around it). Hero identity lives **in the bubble**, not the colour. ~1 in 8 bubbles is a hero bubble (v1 greybox). |
-| **Hero class** | Determined by the trapped hero. A Fire Knight (DPS) can be in a green bubble. |
-| **Colour frenzy** | Clear all of one colour in Phase 1 → its heroes get +50% damage for the full Phase 2 wave. |
+This concept was not picked from a brainstorm. It is the output of a 6-phase research methodology applied across ~25 comp games (full audit in `game_comparison_framework.md`). Three testable hypotheses underpin the bet.
 
-This decouples the four-way tuning bind from the original color-=-class design. Colour is now a puzzle layer; hero identity lives in gacha + bubble drops.
+### H1. The audience exists and is reachable on a different input gesture.
 
----
+**Claim.** Slime Legion / Lucky Defense / GearPaw / Galaxy Defense / Cell Survivor / Gear Defender players will accept a bubble-shooter input as the prep phase of their familiar lane-TD loop.
 
-## Five-class hero system (v1 enabled: 3)
+**Evidence.** All six comps share session length, audience skew, ~4-layer cognitive ceiling, prep→defend rhythm, gacha meta. Bubble Witch 3's audience overlaps demographically.
 
-| Color | Class | Fantasy | v1? |
-|---|---|---|---|
-| Red | DPS | Fire Knight | ✅ |
-| Blue | Slow | Ice Mage | ✅ |
-| Yellow | Range | Archer | ✅ |
-| Green | Heal | Druid | v1.5 |
-| Purple | AOE | Wizard | v1.5 |
+**Falsification.** UA creative test in PH/ID/PL: bubble-shooter input depresses CTR vs match-3 by >30% on the same lane-TD frame.
 
----
+### H2. No UA giant in the parent category will enter the hybrid.
 
-## Move budget per stage
+**Claim.** Bubble shooter is the most fragmented Top Free category. King is the only structural threat and has not moved into TD hybrids in 5+ years. 12–18 month first-mover window.
 
-| Stage | Move budget | Notes |
-|---|---|---|
-| 1 | 10 | Tutorial pace, no descent |
-| 2 | 11 | + Blue introduced |
-| 3 | 13 | + Yellow + Runner enemy |
-| 4 | 14 | + Cluster descent (stages 4+) |
-| 5 (boss) | 16 | + cluster shake during P1 |
+**Evidence.** AppMagic publisher revenue distribution + 5-year King portfolio scan. Habby is survivor/auto-shooter, not bubble; Perfeggs is lane-TD, not bubble.
 
-The budget creates a clear player goal each stage — "make these shots count." Run out before clearing the cluster → leftover bubbles become enemies → Phase 2 is harder.
+**Falsification.** King or Habby soft-launches a direct clone in PH/CA/BR within 6 months of our soft launch.
+
+### H3. The 10–30% innovation envelope holds.
+
+**Claim.** Pop Brigade is 70% proven DNA + 20% input swap + 5% merge depth + 5% novel hooks. None of the innovation is invented from scratch; every layer is borrowed from a shipped, profitable game.
+
+**Evidence.** 70% Slime Legion DNA (phased build→defend, lane TD, gacha hero collection). 20% bubble-shooter input (Bubble Witch / Panda Pop pattern). 5% Lucky Defense merge ladder (B+B → S → G). 5% novel — hero-bubble recruitment, race-to-burst Phase 1 end condition, dual-intent Phase 2 drag.
+
+**Falsification.** Greybox playtest shows testers describe the two phases as "two games" → the cluster–lane unification thesis fails and the concept dies pre-prototype.
 
 ---
 
-## Hero placement & movement
+### Why this concept will work (the bet, plain)
 
-- Hero spawns at row 0 in the **column directly below** the popped hero bubble.
-- If that column is full: nearest empty cell. No silent overwrite (tier-upgrade replace OR FIFO queue).
-- **Phase 1: heroes are stationary.** They idle on the line, waiting.
-- **Phase 2: heroes are fully draggable.** Touch and hold → drag horizontally along row 0 → release commits. No cooldown, swap-on-occupied.
-- Carry-over: surviving heroes go to the next level with **HP + column placement preserved**.
+The audience is already proven by six comp games. The input is already proven by Bubble Witch. The lane is empty because nobody has solved the cluster–lane disconnect, and we have a named fix for it. There is no UA giant in the parent category willing to enter the hybrid. The economics are floor-case ($500K–$2M/mo Slime Legion band), not Habby-tier — and that's the right ambition for a team-of-10. If H3 holds in greybox playtest, this concept ships. If it fails, it dies cheap, before prototype.
 
 ---
 
-## Progression (3-layer meta, copied from Slime Legion playbook)
+## 4. Player journey
 
-| Layer | Length | Hook |
-|---|---|---|
-| Stage | 60-150 sec | Phase 1 puzzle pressure + Phase 2 wave |
-| Run | 10-12 min | 5 stages + boss, pick-3 boons including 1 synergy (Color Affinity) |
-| Meta | Long-term | Hero gacha (~25 heroes), cannon upgrades (incl. move-budget upgrades), battle pass, daily/weekly events, clan raids (post-launch) |
+### Detailed D1 — first 60 seconds (beat-by-beat)
 
----
+- **0–5s.** Vertical phone screen. A cluster of coloured bubbles fills the top two-thirds; a launcher sits at the bottom. One bubble at the cluster's edge glows gold with a tiny hero silhouette inside it. Tutorial finger taps it: "free your first hero."
+- **5–15s.** Player drags to aim, releases. A bubble flies up, hits a 3-of-a-colour match, pops, and a chibi hero drops onto the lane below the cluster with a satisfying *thunk* + voice line ("Reporting!").
+- **15–25s.** Three more hero bubbles light up. The move counter shows **8 shots left**. Player fires again — this time a 5-match. The freed hero drops as a **Silver** tier (an "S" badge on their head, slightly bigger sprite).
+- **25–40s.** Last hero bubble pops. The whole cluster sweeps away in a satisfying clear. Screen banner: **"WAVE INCOMING."** Three goblins start marching down the lane.
+- **40–60s.** Heroes auto-attack. Player drags the front-line tank a step left to intercept the first goblin. A second goblin lane-switches; player drags a matching hero across, the two heroes meet, snap-zoom merge animation, one bigger hero remains. Wave dies. **"STAGE 1 CLEAR."** Confetti + a coin spray. Tutorial finger taps **Next Stage**.
 
-## Monetization
+### Rest of D1 (next 5–10 minutes)
 
-| Stream | Notes |
-|---|---|
-| Gacha | Hero pulls — pulled heroes appear in hero bubbles during runs. **Direct gacha-to-gameplay link.** |
-| Energy | 5 runs/day, refill paid or ad |
-| Boosters | Pre-run: hero-bubble density +50%, extra moves, special bubble loadout |
-| Battle pass | Seasonal, $5-10 |
-| Ad rewards | Revive on stage fail, double rewards, free hero bubble |
+- **Stages 2–3** introduce a bigger cluster, 2–3 hero bubbles each, slightly harder waves. Player learns: matching bigger chains frees stronger heroes.
+- **Stage 4** is the first wall. Player runs out of moves with one hero bubble still trapped. Stage starts the Defend phase short-handed; player loses. **Continue offer** appears: +3 moves for ad/$4.99.
+- **Stage 5 (boss).** Single fat enemy with a shield. The only way to break it cleanly is to drag two Silver heroes together into a Gold merge. First "aha" beat for the merge layer.
+- **Run end.** Coins + a gacha currency drip. First **gacha pull** unlocks a new hero ("Bramble the Druid"). A pop-up promises: "Bramble will appear in your next run's cluster."
+- **Home screen.** Daily-login chest queued for tomorrow. Battle pass tile at 5%. Energy: 4/5 runs left.
 
-**First $4.99 moment:** "Extra Moves" continue offer — when Phase 1 budget hits 0 with cluster still full, pay gems for +3 moves. Players will be deep into a stage when this fires.
+### Vague D1–D14 idea
 
-**Target ARPDAU:** $0.15-0.25 (Slime Legion / Lucky Defense band)
-**Target D1 / D7 / D30:** 35% / 15% / 6%
-
----
-
-## Differentiation (10-30% innovation framing)
-
-| Slice | What |
-|---|---|
-| 50% Slime Legion DNA | Phased build → defend, lane TD, gacha meta, hero-collection drives gameplay |
-| 20% bubble shooter input | Aim-fire with move budget, cluster planning, colour chaining |
-| 15% Lucky Defense merge depth | Drag-to-merge same-class same-tier heroes into next tier (B+B → S → G). Lifted from Lucky Defense / merge-game pattern, but layered on top of bubble-shooter input rather than being the only input. |
-| 15% novel hooks | **(a) Hero bubbles** — heroes are trapped in specific bubbles, visible from spawn. **(b) Leftover-bubbles-become-enemies** — the bubbles you don't pop are the wave you fight (causal link between phases). **(c) Phase 2 hero dragging carries dual intent** — reposition for threat OR merge for tier-up, same gesture. None of the three has a direct equivalent in the comp set. |
+| Day | What the player has | What brings them back |
+| --- | --- | --- |
+| **D1** | 3–5 heroes collected; Realm 1 Run 1 cleared; first gacha pull done; first-win chest queued for tomorrow | First-win chest, "Bramble appears in cluster" promise, second free gacha pull |
+| **D3** | 8–10 heroes; first ascension on starter hero; mid-way through Realm 1; daily quests rhythm established | Realm 1 boss kill, banner rotation, battle-pass milestone, guild invite prompt |
+| **D7** | First **Gold-tier** hero; Realm 2 unlocked; joined a guild; first $4.99 offer surfaced | Guild boss event, weekly banner drop, first paid starter offer expiring, ranked lane preview |
+| **D14** | Multiple ascended heroes; full team comp forming; daily run cap matters; weekend tournament unlocked | Ranked lanes, weekend tournament, new banner with limited hero, guild-coop run mode |
 
 ---
 
-## Competitive positioning
+## 5. Risks
 
-| Game | Why it's not us |
-|---|---|
-| Bubble Witch 3 ($622K/mo, King) | Pure puzzle, no TD layer, no hero collection |
-| Panda Pop ($575K/mo, Jam City) | Pure puzzle |
-| Slime Legion (Habby) | Same TD meta but match-3 input; we offer aim-feel + the leftover-becomes-wave causal link |
-| Lucky Defense (IGG) | We share both the active-placement pattern AND the same-class-same-tier merge ladder — but bubble shooting (not gacha-summon) is how units arrive on the line, and merging shares a gesture with repositioning rather than being its own pull-summon shop |
-| GearPaw Defenders | Pure placement; we add a continuous Phase 1 input (aim-fire) + the leftover-conversion hook |
+The four reasons this game could fail (full mitigations + kill signals in `old-concept.md` / strategic risks table):
 
-**Unclaimed slot:** bubble shooter input + hero-collection TD meta + active hero placement + merge ladder, with the gacha tied directly to in-run hero spawns AND a clear causal link from Phase 1 to Phase 2.
+1. **Cluster–lane disconnect** — the inherited failure mode of every shipped bubble-TD hybrid: Phase 1 and Phase 2 feel like two glued-together games. Hero bubbles + spawn-column-from-pop-point are our direct fix. **Kill signal:** greybox playtesters describe the two phases as "two games."
+2. **Slime Legion clone perception** — we share architecture, gacha pattern, and audience. **Kill signal:** UA creative test reads as "Slime Legion but worse" rather than its own hook.
+3. **Monetization ceiling below soft-launch bar** — D1 35% / D7 15% / ARPDAU $0.15–$0.25 is a Slime Legion / Lucky Defense floor-case, not a Habby band. **Kill signal:** first 14-day soft-launch ARPDAU below $0.10.
+4. **King or Habby copies post-launch** — bubble shooter is King's home turf; lane TD is Habby's. **Kill signal:** Habby soft-launches a direct clone in PH/CA/BR within 6 months of our soft launch.
 
 ---
 
-## Production
+## 6. Reference games
 
-| Item | Estimate |
-|---|---|
-| Team | 10 |
-| Engine | Unity |
-| MVP timeline | 6-8 months to soft launch |
-| Soft launch markets | PH, ID, BR, TR (Habby-style emerging-market test) |
-| Global launch target | Q1 2027 |
+Player-perception comparables.
 
----
+- **Slime Legion** — Perfeggs, 2024. Same prep→defend rhythm, same lane TD + gacha-hero meta, same hybrid-casual audience. We share the architecture; we don't share the input gesture (match-3 vs bubble-shoot).
+- **Lucky Defense** — 111%, 2024. Same active-placement + same-class same-tier merge ladder (B+B → S → G). We don't share the gacha-summon-as-input shop.
+- **GearPaw Defenders!** — Perfeggs, 2025. Same lane-TD + hero-collection loop, fastest-growing direct comp. We don't share the static-shooter input.
+- **Galaxy Defense** — lane TD with hero-collection meta and prep-then-defend rhythm. Same architecture and audience as Pop Brigade's TD side; different art lane (sci-fi vs fantasy) and different input on the prep phase. Included specifically because it confirms the lane-TD + hero-gacha pattern works outside the Perfeggs orbit.
+- **Cell Survivor** — top-of-matrix comp at 85 in the scoring framework; 1D lane shooter with biology-themed art. Same compressed-lane mental model and same hybrid-casual session shape as Pop Brigade's Phase 2; different in that it's a single-input shooter without a recruit phase or merge ladder.
+- **Gear Defender** *(distinct from GearPaw Defenders!)* — lane-TD shape with a different prep gesture and a different art lane. Useful comparable because it shows the lane-TD audience is broad enough to support multiple parallel concepts beyond the Perfeggs flagship — the audience is the addressable surface, not any single title.
+- **Bubble Witch 3** — King, 2017. Same bubble-shooter aim-feel and audience-overlap; we don't share the pure-puzzle structure (no TD, no hero meta).
+- **Capybara Go!** — Habby, 2024. Same hybrid-casual session shape and gacha-narrative ambition; we don't share the survivor-style auto-combat input.
 
-## Risks + open questions
-
-| Risk | Mitigation |
-|---|---|
-| Players don't connect "leftover bubbles" with "wave enemies" — Q1 fail | Strong transition VFX: each leftover bubble visibly drops out of cluster and becomes an enemy in same column. "Conversion preview" during 1 s wipe. |
-| Move budget too tight or too generous | Pre-tuned ±2 budget configs ready to swap mid-test |
-| Cognitive load at stage 4-5 (descent + budget + drag + frenzy) | Stages 1-3 introduce mechanics one at a time. Stage 4 is the descent introduction. |
-| Hero dragging unused | First lever: spawn heroes in unhelpful columns; second: positional bonuses |
-| Merge mechanic ignored / overlooked | Tune for at least 1 same-class-same-tier matching opportunity per stage by stage 2-3. Auto-merge on P1 row-0 collision pulls beginners in passively. First-time hint on first matching-pair spawn. |
-| Merge intent collides with reposition intent in P2 | Telemetry distinguishes resolution=move/swap/merge. If testers fumble — visual highlight of matching-pair on drag-lift; consider long-press → merge-only mode. |
-| Merge makes stages 4-5 trivial (one Gold per column) | Wave scripts assume tier mix ~50/35/15 B/S/G by stage 5. If testers hit 60%+ Gold, scale wave +20%. Gold cap (no further merge) already limits the ceiling. |
-| King or Habby copies post-launch | First-mover defensibility through gacha pipeline + the hero-bubble-as-gacha-shelf hook is genuinely novel |
+**Genre mashup formula:** *Lane tower defense × bubble shooter × hero-gacha collector × merge ladder.*
 
 ---
 
-## Ask
+## 7. Deliverables
 
-- Sign-off to start paper prototype
-- 1 designer + 1 engineer dedicated for 4 weeks
-- Reference budget approval (~$200 for buying competitor gems / battle passes for teardown)
+### 7.1 Synthetic testing materials — Design (text)
 
----
-
-## Phases
-
-- [ ] Phase 1: CEO review of one-pager + go/no-go for paper prototype
-- [ ] Phase 2 (Week 1-2): Paper prototype of phased loop (Figma + manual playtest, focus on leftover-converts-to-wave readability)
-- [ ] Phase 3 (Week 2-3): Greybox vertical slice (5 stages, 3 hero colours, no meta, no art)
-- [ ] Phase 4 (Week 4): Internal playtest — Q1 causal-arc gate, drag-agency gate
-- [ ] Phase 5: Decision gate — go to vertical slice (with art + descent + boss shake) or kill
-- [ ] Phase 6: If go — add to game_comparison_framework.md as self-designed entry
+| Artifact | Used by | Word target | Status | Notes |
+| --- | --- | --- | --- | --- |
+| Full description of core loop | Stage 1 | ~135–170 | **Drafted** — see §7.1.a below | Player-voice. No title, no monetization, no depth claims. |
+| Core loop + 1 meta progression | Stage 1 (genre-conditional) | ~150–200 | **Drafted** — see §7.1.b below | Collection-driven concept → required. |
+| Store-page variant | Stage 1b (optional) | ~50 | **Drafted** — see §7.1.c below | Pre-install pitch; reads like a Play Store description. |
+| First 1–5 minutes the player experiences | Stage 1 supporting / Stage 2 prep | ~200–300 | **Drafted** — see §7.1.d below | Expansion of §4's first-60s into full opening session. |
+| D1–D14 player journey (progression description) | Stage 2 | ~200–400 | **Drafted** — see §7.1.e below | Prose, not feature list. Maps to §4's D1–D14 table, expanded. |
 
 ---
 
-## Notes / decisions
+#### 7.1.a Full description of core loop (player-voice, ~155 words)
 
-**2026-05-11**
-- Bubble shooter chosen on three signals: closest DNA to Slime Legion, most fragmented competitive lane, audience overlap.
+A run starts with a cluster of bubbles overhead and a launcher at the bottom of the screen. Some bubbles have heroes trapped inside them. I have a fixed number of shots — usually eight to twelve. I aim, fire, and pop matches of three or more same-colour bubbles. When a match clears a hero bubble, that hero drops onto a lane below the cluster as my unit for the fight. Bigger matches free higher-tier heroes. The instant the last hero is freed, or I run out of shots, the cluster sweeps away and a wave of enemies starts marching down the lane. My heroes auto-attack. I drag them left and right to intercept threats and to merge same-class heroes into stronger versions. A stage clears when the wave dies. A run is five stages and a boss, maybe seven or eight minutes total.
 
-**2026-05-12**
-- V8 phased build-then-defend locked over V2 simultaneous-cluster-as-spawner.
+#### 7.1.b Core loop + 1 meta progression (~190 words)
 
-**2026-05-13**
-- **Hero bubbles introduced.** Only specific bubbles (visible face/portrait, ~1-in-8 density) spawn heroes. Other bubbles clear pressure only. Class decoupled from bubble colour.
-- **Heroes are draggable during Phase 2.** Lucky Defense pattern — full row-0 range, no cooldown, swap-on-occupied. (Implemented in godot-prototype.)
-- **Phase 1 end trigger: move budget** (10 at L1, scaling up) instead of time cap. Clearer player goal.
-- **Phase 1 → Phase 2 transition: leftover bubbles convert to enemies.** Replaces v1's "misses vanish below spawn line." The bubbles you didn't pop become the wave you fight — sharper causal link.
-- **Carry-over rule confirmed: HP + column placement preserved.** No Bronze downgrade, no heal. (Implemented in godot-prototype, toggleable via GameConfig.)
-- Druid and Wizard deferred to v1.5.
-- Open: move budget tuning (10 / 12 / 15 at L1); transition VFX (1 s wipe vs longer with conversion preview); hero-bubble density tier (flat 1-in-8 vs scaling).
-- **Hero merge added.** Same class + same tier → next tier (Bronze + Bronze → Silver, Silver + Silver → Gold; Gold caps). Phase 2 = drag-to-merge (replaces swap-on-occupied only when class + tier match); Phase 1 = auto-merge when a freed hero lands on a matching row-0 cell. Lifted from Lucky Defense, layered on top of bubble-shooter input. Adds an optional 5th cognitive layer (merge vs spread). Open: merge HP rule (full new-tier vs sum), legibility without tutorial, cascade behaviour (currently no — each merge is one discrete event).
-- **Spawn-tier thresholds widened.** Match 3-5 = Bronze, 6-9 = Silver, 10+ = Gold (was: 3 / 4 / 5+). Spawn-Gold now requires a 10-bubble chain — realistic only on a stage 4-5 Color Bomb. Bronze is the default for any normal pop *and* early-stage Color Bombs; Silver is a real chain reward (6+ connected); Gold mostly comes from merging. The merge ladder is no longer redundant — it's the primary path to Gold.
+A run is five stages and a boss. Each stage is the same two beats: bubble-shoot to recruit heroes from a cluster, then drag-and-merge those heroes through an incoming wave. Finish the run, win currency, win a chance at a new hero from the gacha.
+
+The meta sits on top of the run. Heroes I unlock from the gacha aren't just permanent additions to my roster; they show up *trapped inside the bubble cluster* on my next run. The heroes I collect literally repopulate my future runs. Upgrading a hero between runs makes them spawn at a higher base tier, so the same Silver-match in the cluster now drops a Gold instead of a Bronze.
+
+Outside the run, there's a realm map — beat enough stages to unlock the next realm with new enemy types and a stronger boss. Daily energy gates how many runs I can do without paying. A weekly banner rotates the gacha. A guild and a weekend tournament sit at the edges for week-two players to keep returning.
+
+#### 7.1.c Store-page variant (~55 words)
+
+Pop bubbles. Free heroes. Defend the lane.
+
+A vertical tower-defense game where the bubble shooter *is* how you recruit your army. Free heroes from a cluster of bubbles, then drag and merge them through waves of enemies. Collect hundreds of heroes — every one you unlock shows up in your next run.
+
+#### 7.1.d First 1–5 minutes the player experiences (~270 words)
+
+The game opens on a vertical screen with a colourful bubble cluster overhead and a launcher at the bottom. A tutorial finger points at a glowing bubble at the cluster's edge with a tiny hero silhouette inside — "free your first hero." The player drags to aim, releases, and a bubble flies up, hits a three-of-a-colour match, pops, and the first hero drops onto the lane with a satisfying *thunk* and a voice line.
+
+Three more hero bubbles light up. The move counter shows eight shots remaining. The player fires again, this time landing a five-match — and the freed hero drops at Silver tier, a touch bigger and badged with an "S." Two more shots, both hero bubbles cleared. The cluster sweeps away and a wave-incoming banner takes the screen.
+
+Three goblins start marching down. The player's heroes auto-attack. A tutorial finger demonstrates a horizontal drag — the front-line tank slides left to intercept the first goblin. A second goblin lane-switches. The player drags a matching hero across, the two units meet, snap-zoom merge animation, one bigger hero remains. The wave dies and Stage 1 clears with confetti and a coin spray.
+
+Stages 2 and 3 reuse the same loop with a bigger cluster and harder waves. By Stage 4 the player has missed a hero bubble and must defend short-handed for the first time; if they fail, a continue offer surfaces. Stage 5 introduces the boss — a fat enemy with a shield only a Gold-tier merge can break. The boss falls, the run ends, the first gacha pull plays. A new hero is unlocked with a promise: "she appears in your next cluster."
+
+#### 7.1.e D1–D14 player journey (~340 words)
+
+**D1** is about teaching the recruit-then-defend rhythm and earning the first emotional beat at the gacha screen. The player clears Realm 1's opening run, collects three to five starter heroes, gets their first gacha pull, and goes to bed with a first-win chest queued for tomorrow and a freshly unlocked hero named in the home screen feed.
+
+**D2–D3** open the merge layer. The player has enough duplicate heroes to start landing same-class merges deliberately rather than accidentally. Daily quests start nudging specific behaviours — "free 10 Silver-tier heroes," "merge to Gold three times." The first ascension is offered on the starter hero, teaching the meta-progression loop: heroes I upgrade between runs spawn at a higher tier inside the cluster. By D3 the player has cleared most of Realm 1 and the first boss-of-realm fight is on deck.
+
+**D4–D7** open the social and economic layers. Realm 1 boss falls. Realm 2 unlocks with new enemy types and a stronger boss. A guild invite prompt appears. The first paid offer — a $4.99 starter pack with a guaranteed Silver-tier hero — surfaces. By D7 the player has their first Gold-tier hero, has joined a guild, and has watched a banner rotate at least once. The weekly battle pass is roughly half complete.
+
+**D8–D14** is when the daily run cap actually starts to bite and the player has to choose what to spend energy on: clearing new realm stages, farming a specific hero for ascension, or qualifying for the weekend tournament. Multiple ascended heroes are in rotation. The team composition becomes a deliberate choice — front-line tanks, back-line ranged, support — rather than "whoever I unlocked." A ranked lanes mode unlocks at D14, giving committed players a reason to log in beyond the campaign. By the end of week two the player either has a roster they care about, or they've already churned.
+
+---
+
+### 7.2 Synthetic testing materials — Art
+
+*Left blank intentionally for this revision. To be filled when art deliverables enter scope.*
+
+| Artifact | Used by | Status | Notes |
+| --- | --- | --- | --- |
+| Mockup of gameplay screen | Stage 3 | **TBD** | All in-match elements visible — heroes, cluster, lane, HUD, environment. Single static frame a player could understand the game from. |
+| Key art | Stage 3 + Stage 1b pairing | **TBD** | Marketing-style hero shot. Featured heroes. Image that leads a store listing. |
+| Key UI frames | Stage 3 | **TBD** | Genre-conditional set: gameplay HUD, hero collection, hero upgrade / skill tree, gacha banner, realm map. |
+| App store icon | Stage 3 | **TBD** | 1024×1024. Tests whether the concept reads at thumbnail size. |
+
+### 7.3 Playable prototype
+
+| Artifact | Used by | Status | Notes |
+| --- | --- | --- | --- |
+| Playable prototype | Greenlight gate | In progress — see `godot-prototype/` | Scope: one core-loop session end-to-end. No meta-loop, no monetization. Must be feel-representative on the bubble-shoot input and the drag-to-merge gesture. |
+| Gameplay video (30–90s, beat-sliced) | Stage 4 | **TBD** | Cut from the prototype. Beats: first 30s onboarding, first win, first loss, first monetization touchpoint. Each beat scored separately. |
+
+---
+
+## 8. Greenlight checklist
+
+- [ ] Hypotheses H1–H3 reviewed against latest evidence (§3)
+- [ ] Core loop description signed off (§7.1.a)
+- [ ] Core loop + meta description signed off (§7.1.b)
+- [ ] Store-page variant signed off (§7.1.c)
+- [ ] First 1–5 minutes signed off (§7.1.d)
+- [ ] D1–D14 journey signed off (§7.1.e)
+- [ ] Gameplay screen mockup approved (§7.2)
+- [ ] Key art approved (§7.2)
+- [ ] Key UI frames approved (§7.2)
+- [ ] App store icon approved (§7.2)
+- [ ] Playable prototype passes cluster–lane unification test (§5 risk 1, H3)
+- [ ] Gameplay video cut and scored on all four beats (§7.3)
+- [ ] Strategic risks reviewed against current build (§5)
