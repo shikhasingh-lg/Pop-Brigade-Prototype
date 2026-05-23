@@ -24,3 +24,6 @@ logs/
 
 # Nested standalone godot-prototype repo (legacy — kept as its own repo)
 godot-prototype/
+
+# v2 lives in its own repo: Pop-Brigade-Prototype-V2
+/v2/
